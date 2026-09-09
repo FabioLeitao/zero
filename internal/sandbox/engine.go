@@ -76,6 +76,51 @@ func (engine *Engine) Scope() *Scope {
 	return engine.scope
 }
 
+// EnforcementStatus reports the platform enforcement that commands launched by
+// this engine would receive. It deliberately delegates to SandboxManager so
+// startup warnings use the same policy calculation as command execution,
+// including the Windows setup tiers and the nested-sandbox pass-through guard.
+func (engine *Engine) EnforcementStatus() (EnforcementLevel, string) {
+	if engine == nil {
+		return EnforcementDisabled, ""
+	}
+	policy := engine.effectivePolicy(engine.policy)
+	preference := SandboxPreferenceAuto
+	if IsAlreadySandboxed() || policy.Mode == ModeDisabled {
+		preference = SandboxPreferenceForbid
+	}
+	request, err := NewSandboxManager(SandboxManagerOptions{
+		GOOS:    engine.backend.Platform,
+		Backend: engine.backend,
+	}).BuildExecutionRequest(SandboxManagerRequest{
+		WorkspaceRoot: engine.workspaceRoot,
+		Policy:        policy,
+		Scope:         engine.scope,
+		Preference:    preference,
+	})
+	if err != nil {
+		return EnforcementDegraded, err.Error()
+	}
+	return request.EnforcementLevel, request.DowngradeReason
+}
+
+// EnforcementWarning returns an actionable user-facing warning only when the
+// engine has fallen back to degraded enforcement. Disabled policy is an
+// explicit configuration choice and native/unelevated enforcement is active,
+// so those states stay quiet.
+func EnforcementWarning(engine *Engine) string {
+	level, reason := engine.EnforcementStatus()
+	if level != EnforcementDegraded {
+		return ""
+	}
+	warning := "Sandbox enforcement is DEGRADED: native OS isolation is inactive, so shell commands run with reduced protection."
+	reason = strings.TrimSpace(reason)
+	if reason != "" {
+		warning += " Reason: " + strings.TrimRight(reason, ".") + "."
+	}
+	return warning + " Run `zero doctor` for setup guidance."
+}
+
 func (engine *Engine) CanPersistGrants() bool {
 	return engine != nil && engine.store != nil
 }

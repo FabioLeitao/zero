@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/Gitlawb/zero/internal/agent"
+	"github.com/Gitlawb/zero/internal/sandbox"
 )
 
 func TestEmptyStateShowsBrandAndTaglineOnly(t *testing.T) {
@@ -46,6 +49,28 @@ func TestEmptyStateShowsVersion(t *testing.T) {
 
 	view := plainRender(t, m.View())
 	assertContains(t, view, "v0.2.0")
+}
+
+func TestDegradedSandboxWarningAppearsOnStartup(t *testing.T) {
+	workspace := t.TempDir()
+	engine := sandbox.NewEngine(sandbox.EngineOptions{
+		WorkspaceRoot: workspace,
+		Policy:        sandbox.DefaultPolicy(),
+		Backend: sandbox.Backend{
+			Name:     sandbox.BackendUnavailable,
+			Platform: "linux",
+			Message:  "Linux sandbox helper is not available",
+		},
+	})
+	m := newModel(context.Background(), Options{
+		AgentOptions: agent.Options{Sandbox: engine},
+	})
+	m.width, m.height = 100, 30
+
+	view := plainRender(t, m.View())
+	assertContains(t, view, "Sandbox enforcement is DEGRADED")
+	assertContains(t, view, "Linux sandbox helper is not available")
+	assertContains(t, plainRender(t, m.statusLine(100)), "sandbox degraded")
 }
 
 func TestDisplayVersion(t *testing.T) {
