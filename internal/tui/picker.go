@@ -34,12 +34,15 @@ const (
 // pickerItem is one selectable row: Label is shown, Value is passed to the
 // underlying command handler when chosen. Meta is the optional right-aligned
 // readout (ctx window · capabilities); the dot flags mark provider locality
-// for model rows (accent = remote, blue = local).
+// for model rows (accent = remote, blue = local). Detail is an optional faint
+// second line under the row (project · model · size for sessions), rendered
+// only on medium-and-wider tiers where the extra line reads cleanly.
 type pickerItem struct {
 	Group    string
 	Label    string
 	Value    string
 	Meta     string
+	Detail   string
 	Provider string // display tag (catalog id / locality)
 	// OwnerProvider is the saved provider profile name a model belongs to, so the
 	// /model picker can switch providers when a model from a non-active provider is
@@ -167,7 +170,7 @@ func (p *commandPicker) applyQuery() {
 // the joined haystack, and a fuzzy subsequence is the last-resort match.
 func scorePickerItem(item pickerItem, query string) (int, bool) {
 	label := strings.ToLower(item.Label)
-	hay := strings.ToLower(strings.Join([]string{item.Group, item.Label, item.Value, item.Meta}, " "))
+	hay := strings.ToLower(strings.Join([]string{item.Group, item.Label, item.Value, item.Meta, item.Detail}, " "))
 	switch {
 	case label == query:
 		return 0, true
@@ -945,6 +948,23 @@ func (m model) persistFavoriteModels() error {
 // of the session. Returns the receiver unchanged (no re-normalization, no
 // write) when every pair has a blank model id.
 func (m model) recordRecentModels(pairs ...config.RecentModelEntry) model {
+	m, changed := m.updateRecentModels(pairs...)
+	if !changed {
+		return m
+	}
+	if path := strings.TrimSpace(m.userConfigPath); path != "" {
+		if _, err := config.SetRecentModels(path, m.recentModels); err != nil {
+			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "recent model save error: " + err.Error()})
+		}
+	}
+	return m
+}
+
+// updateRecentModels performs recordRecentModels' in-memory half. A model
+// switch whose selection transaction failed still belongs in this session's
+// picker history, but must not make another blocking persistence attempt while
+// the same config lock is unavailable.
+func (m model) updateRecentModels(pairs ...config.RecentModelEntry) (model, bool) {
 	entries := append([]config.RecentModelEntry{}, m.recentModels...)
 	changed := false
 	for _, pair := range pairs {
@@ -956,15 +976,10 @@ func (m model) recordRecentModels(pairs ...config.RecentModelEntry) model {
 		entries = append([]config.RecentModelEntry{{Provider: strings.TrimSpace(pair.Provider), Model: modelID}}, entries...)
 	}
 	if !changed {
-		return m
+		return m, false
 	}
 	m.recentModels = normalizeRecentModelEntries(entries)
-	if path := strings.TrimSpace(m.userConfigPath); path != "" {
-		if _, err := config.SetRecentModels(path, m.recentModels); err != nil {
-			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendError, text: "recent model save error: " + err.Error()})
-		}
-	}
-	return m
+	return m, true
 }
 
 // normalizeRecentModelEntries trims, drops entries with no model id,
