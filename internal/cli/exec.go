@@ -581,6 +581,14 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	if writer.err != nil {
 		return exitCrash
 	}
+	if deps.sandboxEnforcementWarning != nil {
+		if warning := deps.sandboxEnforcementWarning(sandboxEngine); warning != "" {
+			writer.warning(warning)
+			if writer.err != nil {
+				return exitCrash
+			}
+		}
+	}
 	// Surface the unsafe-permissions warning whenever the run resolves to unsafe
 	// mode, covering BOTH --skip-permissions-unsafe and --auto high (which also
 	// resolves to PermissionModeUnsafe). Previously only the explicit flag path

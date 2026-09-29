@@ -241,6 +241,9 @@ func (m model) renderRowModeUncached(row transcriptRow, width int, rc rowContext
 		if row.tool == "peer" {
 			return renderPeerMessageRow(row.text, width)
 		}
+		if row.tool == "sandbox-warning" {
+			return renderSandboxWarning(row.text, width)
+		}
 		if payload, ok := planCardTranscriptPayload(row.text); ok {
 			return renderPlanCardRow(payload, width)
 		}
@@ -1048,6 +1051,14 @@ func renderErrorRow(row transcriptRow, width int) string {
 		note += "\n" + fitStyledLine(zeroTheme.faint.Render("→ "+hint), width)
 	}
 	return note
+}
+
+func renderSandboxWarning(text string, width int) string {
+	lines := wrapPlainText(text, maxInt(16, width-4))
+	for index := range lines {
+		lines[index] = zeroTheme.amber.Render(lines[index])
+	}
+	return styledBlock(width, lines, zeroTheme.permBorder)
 }
 
 // noteBox is the bordered one-note container behind system and error rows.
