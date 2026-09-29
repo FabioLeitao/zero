@@ -22,6 +22,7 @@ import (
 	"github.com/Gitlawb/zero/internal/sandbox"
 	"github.com/Gitlawb/zero/internal/sessions"
 	"github.com/Gitlawb/zero/internal/tools"
+	"github.com/Gitlawb/zero/internal/usage"
 	"github.com/Gitlawb/zero/internal/zeroruntime"
 )
 
@@ -521,6 +522,12 @@ func (a *Agent) runTurn(ctx context.Context, sess *acpSession, userText string, 
 		Images:         images,
 		OnText:         note.text,
 		OnReasoning:    note.thought,
+		// Persist token usage the same way `zero exec` does, so `zero usage report`
+		// sees ACP sessions too. It joins the turn's buffered batch: a hard run
+		// failure that aborts the turn drops its usage together with its history.
+		OnUsage: func(u agent.Usage) {
+			queue(usageEvent(u))
+		},
 		OnToolCall: func(call agent.ToolCall) {
 			queue(toolCallEvent(call))
 			note.toolCall(call)
@@ -848,6 +855,15 @@ func messageEvent(role, content string) sessions.AppendEventInput {
 	return sessions.AppendEventInput{
 		Type:    sessions.EventMessage,
 		Payload: map[string]any{"role": role, "content": content},
+	}
+}
+
+// usageEvent records one provider usage report in the same persisted shape the
+// exec runtime writes (usage.EventUsagePayload is the single writer).
+func usageEvent(u agent.Usage) sessions.AppendEventInput {
+	return sessions.AppendEventInput{
+		Type:    sessions.EventUsage,
+		Payload: usage.EventUsagePayload(u),
 	}
 }
 
