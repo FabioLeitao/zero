@@ -114,6 +114,46 @@ func ResolveStreamIdleTimeout(option time.Duration) time.Duration {
 	return DefaultStreamIdleTimeout
 }
 
+// DefaultResponseHeaderTimeout is how long the shared HTTP transport waits for
+// a response header after the request is written. 120s, not 60s: a slow cloud
+// proxy (e.g. ollama `*:cloud`) can withhold its 200 response header until the
+// upstream model emits a first token, so a 60s cap risked aborting a
+// legitimately-slow-but-alive request. 120s still bounds a truly dead reused
+// connection (which never responds) while tolerating slow header delivery; slow
+// first tokens after the header are covered by the idle + content-stall
+// watchdogs.
+const DefaultResponseHeaderTimeout = 120 * time.Second
+
+// responseHeaderTimeoutEnv is the global override for the response header
+// timeout. It accepts the same forms as ZERO_STREAM_IDLE_TIMEOUT: a Go duration
+// ("5m", "300s", "90s") or a bare number of seconds ("300"). A value of "0",
+// "off", "none", or "disabled" removes the limit entirely (a connection that
+// never answers may then wait until the request context ends). Useful when a
+// local model server needs longer than DefaultResponseHeaderTimeout to produce
+// the first byte, for example a cold model load on a throttled Ollama.
+const responseHeaderTimeoutEnv = "ZERO_RESPONSE_HEADER_TIMEOUT"
+
+// ResolveResponseHeaderTimeout selects the effective response header timeout:
+// the ZERO_RESPONSE_HEADER_TIMEOUT env override if set and valid, otherwise
+// DefaultResponseHeaderTimeout. A returned value <= 0 means no limit.
+func ResolveResponseHeaderTimeout() time.Duration {
+	if raw := strings.TrimSpace(os.Getenv(responseHeaderTimeoutEnv)); raw != "" {
+		switch strings.ToLower(raw) {
+		case "0", "off", "none", "disabled":
+			return 0
+		}
+		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+			return d
+		}
+		if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+		// Unparseable / non-positive: fall through to the default rather than
+		// silently removing the limit on a typo.
+	}
+	return DefaultResponseHeaderTimeout
+}
+
 // NormalizeBaseURL trims trailing slashes and validates an HTTP API base URL.
 func NormalizeBaseURL(baseURL string, defaultBaseURL string, label string) (string, error) {
 	baseURL = strings.TrimSpace(baseURL)
@@ -161,13 +201,9 @@ func NormalizeBaseURL(baseURL string, defaultBaseURL string, label string) (stri
 //     pooled connections around as long.
 var sharedHTTPClient = func() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	// 120s, not 60s: a slow cloud proxy (e.g. ollama `*:cloud`) can withhold its
-	// 200 response header until the upstream model emits a first token, so a 60s cap
-	// risked aborting a legitimately-slow-but-alive request. 120s still bounds a
-	// truly dead reused connection (which never responds) while tolerating slow
-	// header delivery; slow first tokens after the header are covered by the idle +
-	// content-stall watchdogs.
-	transport.ResponseHeaderTimeout = 120 * time.Second
+	// DefaultResponseHeaderTimeout (120s) unless ZERO_RESPONSE_HEADER_TIMEOUT
+	// overrides it; see the constant for why the default is 120s and not 60s.
+	transport.ResponseHeaderTimeout = ResolveResponseHeaderTimeout()
 	transport.IdleConnTimeout = 30 * time.Second
 	// Periodically close idle connections to prevent stale HTTP/2
 	// connections from causing PROTOCOL_ERROR on the next request.
