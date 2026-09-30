@@ -354,7 +354,15 @@ func (provider *Provider) emitChunk(
 		}
 	}
 
+	if chunk.Model != "" {
+		state.resolvedModel = chunk.Model
+	}
+
 	if chunk.Usage != nil {
+		resolvedModel := state.resolvedModel
+		if chunk.Model != "" {
+			resolvedModel = chunk.Model
+		}
 		sendEvent(ctx, events, zeroruntime.StreamEvent{
 			Type: zeroruntime.StreamEventUsage,
 			Usage: zeroruntime.Usage{
@@ -363,6 +371,7 @@ func (provider *Provider) emitChunk(
 				CachedInputTokens: chunk.Usage.PromptTokensDetails.CachedTokens,
 				CacheWriteTokens:  chunk.Usage.PromptTokensDetails.CacheWriteTokens,
 				ReasoningTokens:   chunk.Usage.CompletionTokensDetails.ReasoningTokens,
+				ResolvedModel:     resolvedModel,
 			},
 		})
 	}
