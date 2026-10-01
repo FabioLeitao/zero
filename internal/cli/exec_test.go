@@ -17,6 +17,7 @@ import (
 	"github.com/Gitlawb/zero/internal/agent"
 	"github.com/Gitlawb/zero/internal/config"
 	"github.com/Gitlawb/zero/internal/modelregistry"
+	"github.com/Gitlawb/zero/internal/sandbox"
 	"github.com/Gitlawb/zero/internal/sessions"
 	"github.com/Gitlawb/zero/internal/zeroruntime"
 )
@@ -650,6 +651,50 @@ func execResolvedConfig() config.ResolvedConfig {
 	}
 }
 
+func TestRunExecEmitsDegradedSandboxWarning(t *testing.T) {
+	workspace := t.TempDir()
+	store, err := sandbox.NewGrantStore(sandbox.StoreOptions{
+		FilePath: filepath.Join(t.TempDir(), "sandbox-grants.json"),
+	})
+	if err != nil {
+		t.Fatalf("NewGrantStore() error = %v", err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"exec", "--no-completion-gate", "hello"}, &stdout, &stderr, appDeps{
+		getwd: func() (string, error) { return workspace, nil },
+		resolveConfig: func(string, config.Overrides) (config.ResolvedConfig, error) {
+			resolved := execResolvedConfig()
+			resolved.MaxTurns = 1
+			return resolved, nil
+		},
+		resolveMCPConfig: func(string, bool) (config.MCPConfig, error) {
+			return config.MCPConfig{}, nil
+		},
+		newProvider: func(config.ProviderProfile) (zeroruntime.Provider, error) {
+			return echoExecProvider{}, nil
+		},
+		newSandboxStore: func() (*sandbox.GrantStore, error) { return store, nil },
+		selectSandboxBackend: func(sandbox.BackendOptions) sandbox.Backend {
+			return sandbox.Backend{
+				Name:     sandbox.BackendUnavailable,
+				Platform: "linux",
+				Message:  "Linux sandbox helper is not available",
+			}
+		},
+		sandboxEnforcementWarning: sandbox.EnforcementWarning,
+	})
+
+	if exitCode != exitSuccess {
+		t.Fatalf("exitCode = %d, want %d; stderr=%q", exitCode, exitSuccess, stderr.String())
+	}
+	for _, want := range []string{"WARNING", "Sandbox enforcement is DEGRADED", "Linux sandbox helper is not available", "zero doctor"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+		}
+	}
+}
+
 type recordingExecProvider struct {
 	called *bool
 }
@@ -980,7 +1025,9 @@ func TestRunExecUsesProjectConfigAndOpenAICompatibleProvider(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exitCode := Run([]string{"exec", "--cwd", root, "hello provider"}, &stdout, &stderr)
+	deps := defaultAppDeps()
+	deps.sandboxEnforcementWarning = nil // this test covers provider wiring, not host sandbox availability
+	exitCode := runWithDeps([]string{"exec", "--cwd", root, "hello provider"}, &stdout, &stderr, deps)
 
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d: %s", exitCode, stderr.String())
@@ -1973,5 +2020,25 @@ func TestRunExecTopTierDeclineNoSwitch(t *testing.T) {
 	}
 	if providerModels[0] != "claude-opus-4.1" {
 		t.Fatalf("provider model = %q, want claude-opus-4.1", providerModels[0])
+	}
+}
+
+func TestExecTurnBudgetDefaultsToCeilingUnlessSet(t *testing.T) {
+	cases := []struct {
+		name     string
+		resolved config.ResolvedConfig
+		want     int
+	}{
+		// A headless run has no user to continue past the shared interactive
+		// default, so an unconfigured budget starts at the ceiling.
+		{"unconfigured default", config.ResolvedConfig{MaxTurns: 80, MaxTurnsSet: false}, config.MaxTurnsCeiling},
+		// A user who configured 80 on purpose (e.g. cost control in CI) keeps 80.
+		{"explicit default value", config.ResolvedConfig{MaxTurns: 80, MaxTurnsSet: true}, 80},
+		{"configured value passes through", config.ResolvedConfig{MaxTurns: 42, MaxTurnsSet: true}, 42},
+	}
+	for _, tc := range cases {
+		if got := execTurnBudget(tc.resolved); got != tc.want {
+			t.Fatalf("%s: execTurnBudget = %d, want %d", tc.name, got, tc.want)
+		}
 	}
 }

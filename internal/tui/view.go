@@ -204,17 +204,21 @@ func (m model) statusLine(width int) string {
 	if m.btw.active {
 		btwChip = zeroTheme.amber.Render("BTW") + zeroTheme.muted.Render(" · ")
 	}
-	left := prefix + btwChip + zeroTheme.accent.Render("●") + " " + modeStyle.Render(modeText)
+	sandboxChip := ""
+	if m.sandboxWarning != "" {
+		sandboxChip = zeroTheme.amber.Render("⚠ sandbox degraded") + separator
+	}
+	left := prefix + sandboxChip + btwChip + zeroTheme.accent.Render("●") + " " + modeStyle.Render(modeText)
 
 	if tier == tierTiny {
 		if m.exitConfirmActive {
-			return fitStyledLine(prefix+btwChip+zeroTheme.amber.Render("●")+" "+zeroTheme.amber.Render(ctrlCExitConfirmText), width)
+			return fitStyledLine(prefix+sandboxChip+btwChip+zeroTheme.amber.Render("●")+" "+zeroTheme.amber.Render(ctrlCExitConfirmText), width)
 		}
 		if m.cancelConfirmActive {
-			return fitStyledLine(prefix+btwChip+zeroTheme.amber.Render("●")+" "+zeroTheme.amber.Render(escCancelConfirmText), width)
+			return fitStyledLine(prefix+sandboxChip+btwChip+zeroTheme.amber.Render("●")+" "+zeroTheme.amber.Render(escCancelConfirmText), width)
 		}
 		if dictation := m.dictationStatusChip(); dictation != "" {
-			return fitStyledLine(prefix+btwChip+dictation, width)
+			return fitStyledLine(prefix+sandboxChip+btwChip+dictation, width)
 		}
 		if goalSummary := m.goalFooterSummary(); goalSummary != "" {
 			left += zeroTheme.muted.Render(" · ") + zeroTheme.accent.Render("◎ ") + zeroTheme.muted.Render(goalSummary)
@@ -230,16 +234,16 @@ func (m model) statusLine(width int) string {
 		left += zeroTheme.muted.Render(" · ") + zeroTheme.accent.Render("fast")
 	}
 	if m.exitConfirmActive {
-		left = prefix + btwChip + zeroTheme.amber.Render("●") + " " + zeroTheme.amber.Render(ctrlCExitConfirmText)
+		left = prefix + sandboxChip + btwChip + zeroTheme.amber.Render("●") + " " + zeroTheme.amber.Render(ctrlCExitConfirmText)
 	} else if m.cancelConfirmActive {
-		left = prefix + btwChip + zeroTheme.amber.Render("●") + " " + zeroTheme.amber.Render(escCancelConfirmText)
+		left = prefix + sandboxChip + btwChip + zeroTheme.amber.Render("●") + " " + zeroTheme.amber.Render(escCancelConfirmText)
 	} else if m.dictation.downloading && m.dictation.downloadStatus != "" {
 		// A model download in progress takes over the left chip with a live percentage.
-		left = prefix + btwChip + zeroTheme.accent.Render("⬇ ") + zeroTheme.muted.Render(m.dictation.downloadStatus)
+		left = prefix + sandboxChip + btwChip + zeroTheme.accent.Render("⬇ ") + zeroTheme.muted.Render(m.dictation.downloadStatus)
 	} else if dictation := m.dictationStatusChip(); dictation != "" && m.dictation.active() {
 		// An active recording/transcription takes over the left chip — it is the
 		// most time-sensitive thing on screen (the mic is live).
-		left = prefix + btwChip + dictation
+		left = prefix + sandboxChip + btwChip + dictation
 	} else {
 		if voice := m.voiceModeIndicator(); voice != "" {
 			left += zeroTheme.muted.Render(" · ") + voice
@@ -773,7 +777,7 @@ func (m model) pickerOverlay(width int) string {
 		overlayWidth = width
 	}
 	innerWidth := maxInt(1, overlayWidth-4)
-	maxVisible := minInt(pickerOverlayMaxVisible, len(m.picker.items))
+	maxVisible := pickerMaxVisible(m.picker, width)
 	start := 0
 	visible := []pickerItem{}
 	if len(m.picker.items) > 0 {
@@ -781,6 +785,7 @@ func (m model) pickerOverlay(width int) string {
 		start = selectableListStart(len(m.picker.items), maxVisible, m.picker.selected)
 		visible = m.picker.items[start : start+maxVisible]
 	}
+	showDetails := pickerShowsDetails(m.picker, width)
 
 	lines := make([]string, 0, len(visible)+7)
 	title := strings.TrimSpace(m.picker.title)
@@ -821,6 +826,16 @@ func (m model) pickerOverlay(width int) string {
 		gap := innerWidth - lipgloss.Width(left) - lipgloss.Width(right)
 		line := left + surface(zeroTheme.ink).Render(strings.Repeat(" ", maxInt(1, gap))) + right
 		lines = append(lines, fitStyledLine(line, innerWidth))
+		if showDetails && item.Detail != "" {
+			// The detail line sits under the row on the same selection band,
+			// indented to the label column so it reads as part of the item.
+			// Pad the remainder like the row above so the band is full-width.
+			detailText := "  " + item.Detail
+			detailGap := innerWidth - lipgloss.Width(detailText)
+			detail := surface(zeroTheme.faint).Render(detailText) +
+				surface(zeroTheme.faint).Render(strings.Repeat(" ", maxInt(0, detailGap)))
+			lines = append(lines, fitStyledLine(detail, innerWidth))
+		}
 	}
 	if len(visible) == 0 {
 		if m.picker.loading {
@@ -843,6 +858,36 @@ func (m model) pickerOverlay(width int) string {
 	}
 	lines = append(lines, footer)
 	return centerRenderedBlock(styledBlockFillTitle(overlayWidth, title, lines, zeroTheme.lineStrong, lipgloss.NewStyle()), width)
+}
+
+// pickerShowsDetails reports whether the overlay renders each row's optional
+// Detail line: only when a row actually carries one and the terminal is at
+// least medium width, where the two-line treatment reads cleanly. Narrower
+// tiers keep the single-line list fallback.
+func pickerShowsDetails(p *commandPicker, width int) bool {
+	if p == nil || widthTier(width) < tierMedium {
+		return false
+	}
+	for _, item := range p.items {
+		if item.Detail != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// pickerMaxVisible caps the visible window in items. When detail lines render,
+// each item costs two rows, so the budget halves to keep the overlay the same
+// height as the single-line list.
+func pickerMaxVisible(p *commandPicker, width int) int {
+	if p == nil {
+		return 0
+	}
+	budget := pickerOverlayMaxVisible
+	if pickerShowsDetails(p, width) {
+		budget = pickerOverlayMaxVisible / 2
+	}
+	return minInt(budget, len(p.items))
 }
 
 // themePickerOverlay keeps candidate rendering inside the picker. Moving through
