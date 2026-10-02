@@ -63,6 +63,12 @@ func Scan(root string, options Options) (Summary, error) {
 		maxDepth = DefaultMaxDepth
 	}
 
+	// Best-effort: ask git which paths it already considers ignored, honoring the real
+	// .gitignore instead of only the fixed name denylist below. nil/false when root isn't
+	// a git work tree, git is unavailable, or the lookup times out — ShouldSkipDir and
+	// ShouldSkipFile alone still cover that case, same behavior as before this existed.
+	ignored, hasIgnored := gitIgnoredPaths(cleanRoot)
+
 	files := []File{}
 	dirs := map[string]struct{}{}
 	maxDepthSeen := 0
@@ -83,7 +89,7 @@ func Scan(root string, options Options) (Summary, error) {
 		rel = filepath.ToSlash(rel)
 
 		if entry.IsDir() {
-			if ShouldSkipDir(entry.Name()) || isSymlink(entry) {
+			if ShouldSkipDir(entry.Name()) || isSymlink(entry) || (hasIgnored && ignored[rel]) {
 				return filepath.SkipDir
 			}
 			depth := pathDepth(rel)
@@ -98,7 +104,7 @@ func Scan(root string, options Options) (Summary, error) {
 			return nil
 		}
 
-		if isSymlink(entry) || ShouldSkipFile(rel) {
+		if isSymlink(entry) || ShouldSkipFile(rel) || (hasIgnored && ignored[rel]) {
 			return nil
 		}
 		depth := FileDepth(rel)
