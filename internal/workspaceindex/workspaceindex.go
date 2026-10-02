@@ -168,7 +168,8 @@ func HandleWalkError(cleanRoot string, current string, entry fs.DirEntry, walkEr
 
 func ShouldSkipDir(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case ".cache", ".git", ".next", ".worktrees", ".zero", "build", "coverage", "dist", "node_modules", "vendor":
+	case ".cache", ".git", ".next", ".worktrees", ".zero", "build", "coverage", "dist", "node_modules", "vendor",
+		"target", "__pycache__", ".venv", "venv", ".pytest_cache", ".terraform", ".mypy_cache", ".ruff_cache":
 		return true
 	default:
 		return false
