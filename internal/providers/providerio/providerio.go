@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Gitlawb/zero/internal/trace"
@@ -187,7 +188,18 @@ func NormalizeBaseURL(baseURL string, defaultBaseURL string, label string) (stri
 	return baseURL, nil
 }
 
-// sharedHTTPClient is the process-wide client used when a provider supplies none.
+// sharedHTTPClients holds one stall-hardened client per resolved response-header
+// timeout. The timeout is read when HTTPClient is called, not at package init:
+// a test (or a process that sets ZERO_RESPONSE_HEADER_TIMEOUT before building
+// a provider) must see that value on the transport it actually dials. The
+// transport field is never rewritten after creation, so concurrent requests
+// keep the conn pool of the timeout they resolved.
+var sharedHTTPClients = struct {
+	mu        sync.Mutex
+	byTimeout map[time.Duration]*http.Client
+}{}
+
+// stallHardenedClient builds the client used when a provider supplies none.
 // It tunes the default transport to defeat the stale-pooled-connection hang: Go
 // keeps idle keep-alive connections in a pool, and a later request can reuse one
 // the server/NAT has silently dropped. Because the model call is a POST (non-
@@ -219,11 +231,11 @@ func NormalizeBaseURL(baseURL string, defaultBaseURL string, label string) (stri
 //     to the minutes-long stalls this avoids — and this doesn't touch
 //     Linux/Windows, where the underlying OS doesn't keep dead/degraded
 //     pooled connections around as long.
-var sharedHTTPClient = func() *http.Client {
+func stallHardenedClient(headerTimeout time.Duration) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	// DefaultResponseHeaderTimeout (120s) unless ZERO_RESPONSE_HEADER_TIMEOUT
 	// overrides it; see the constant for why the default is 120s and not 60s.
-	transport.ResponseHeaderTimeout = ResolveResponseHeaderTimeout()
+	transport.ResponseHeaderTimeout = headerTimeout
 	transport.IdleConnTimeout = 30 * time.Second
 	// Periodically close idle connections to prevent stale HTTP/2
 	// connections from causing PROTOCOL_ERROR on the next request.
@@ -239,7 +251,22 @@ var sharedHTTPClient = func() *http.Client {
 	}
 	transport.DisableKeepAlives = runtime.GOOS == "darwin"
 	return &http.Client{Transport: transport}
-}()
+}
+
+func sharedStallClient() *http.Client {
+	timeout := ResolveResponseHeaderTimeout()
+	sharedHTTPClients.mu.Lock()
+	defer sharedHTTPClients.mu.Unlock()
+	if sharedHTTPClients.byTimeout == nil {
+		sharedHTTPClients.byTimeout = make(map[time.Duration]*http.Client)
+	}
+	if client := sharedHTTPClients.byTimeout[timeout]; client != nil {
+		return client
+	}
+	client := stallHardenedClient(timeout)
+	sharedHTTPClients.byTimeout[timeout] = client
+	return client
+}
 
 const defaultIdleConnCloseInterval = 30 * time.Second
 
@@ -277,7 +304,7 @@ func HTTPClient(client *http.Client) *http.Client {
 	if client != nil {
 		return client
 	}
-	return sharedHTTPClient
+	return sharedStallClient()
 }
 
 // SendEvent writes a provider event without blocking cancellation cleanup.
