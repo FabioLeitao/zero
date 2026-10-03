@@ -55,6 +55,13 @@ func TestResolveResponseHeaderTimeout(t *testing.T) {
 		}
 	})
 
+	t.Run("bare seconds that overflow time.Duration keep the default", func(t *testing.T) {
+		t.Setenv(env, "36028797018963968")
+		if got := ResolveResponseHeaderTimeout(); got != DefaultResponseHeaderTimeout {
+			t.Fatalf("got %v, want default %v (overflow must not become a zero timeout)", got, DefaultResponseHeaderTimeout)
+		}
+	})
+
 	t.Run("invalid env falls back to default, not unlimited", func(t *testing.T) {
 		for _, value := range []string{"banana", "-5s", "-1", "1.5x"} {
 			t.Setenv(env, value)

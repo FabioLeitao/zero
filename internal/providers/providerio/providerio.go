@@ -145,11 +145,17 @@ func ResolveResponseHeaderTimeout() time.Duration {
 		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
 			return d
 		}
+		// A bare second count can pass Atoi and still overflow time.Duration
+		// (int64 nanoseconds) when multiplied by time.Second, wrapping to 0
+		// and dropping the 120s default. Values that do not fit keep it.
 		if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
-			return time.Duration(secs) * time.Second
+			const maxSecs = int64(math.MaxInt64) / int64(time.Second)
+			if int64(secs) <= maxSecs {
+				return time.Duration(secs) * time.Second
+			}
 		}
-		// Unparseable / non-positive: fall through to the default rather than
-		// silently removing the limit on a typo.
+		// Unparseable / non-positive / overflow: fall through to the default
+		// rather than silently removing the limit.
 	}
 	return DefaultResponseHeaderTimeout
 }
