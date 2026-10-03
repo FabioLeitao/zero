@@ -89,6 +89,22 @@ func ContentStallTimeout(idleTimeout time.Duration) time.Duration {
 // entirely (streams may then hang until the HTTP/transport layer gives up).
 const streamIdleTimeoutEnv = "ZERO_STREAM_IDLE_TIMEOUT"
 
+// bareSecondsDuration converts a positive second count into a time.Duration.
+// time.Duration is int64 nanoseconds, so a count that passes strconv.Atoi can
+// still overflow when multiplied by time.Second and wrap to 0, which would
+// disable a timeout that should have stayed at its default. ok is false when
+// the product does not fit.
+func bareSecondsDuration(secs int) (time.Duration, bool) {
+	if secs <= 0 {
+		return 0, false
+	}
+	const maxSecs = int64(math.MaxInt64) / int64(time.Second)
+	if int64(secs) > maxSecs {
+		return 0, false
+	}
+	return time.Duration(secs) * time.Second, true
+}
+
 // ResolveStreamIdleTimeout selects the effective stream idle timeout. Precedence:
 // an explicit positive option (e.g. set by a test) wins; otherwise the
 // ZERO_STREAM_IDLE_TIMEOUT env override if set and valid; otherwise
@@ -105,11 +121,13 @@ func ResolveStreamIdleTimeout(option time.Duration) time.Duration {
 		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
 			return d
 		}
-		if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
-			return time.Duration(secs) * time.Second
+		if secs, err := strconv.Atoi(raw); err == nil {
+			if d, ok := bareSecondsDuration(secs); ok {
+				return d
+			}
 		}
-		// Unparseable / non-positive: fall through to the default rather than
-		// silently disabling the watchdog on a typo.
+		// Unparseable / non-positive / overflow: fall through to the default
+		// rather than silently disabling the watchdog.
 	}
 	return DefaultStreamIdleTimeout
 }
@@ -145,13 +163,9 @@ func ResolveResponseHeaderTimeout() time.Duration {
 		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
 			return d
 		}
-		// A bare second count can pass Atoi and still overflow time.Duration
-		// (int64 nanoseconds) when multiplied by time.Second, wrapping to 0
-		// and dropping the 120s default. Values that do not fit keep it.
-		if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
-			const maxSecs = int64(math.MaxInt64) / int64(time.Second)
-			if int64(secs) <= maxSecs {
-				return time.Duration(secs) * time.Second
+		if secs, err := strconv.Atoi(raw); err == nil {
+			if d, ok := bareSecondsDuration(secs); ok {
+				return d
 			}
 		}
 		// Unparseable / non-positive / overflow: fall through to the default
