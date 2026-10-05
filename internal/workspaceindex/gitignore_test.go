@@ -251,3 +251,42 @@ func TestGitCommandDisablesOptionalLocks(t *testing.T) {
 		t.Fatalf("effective GIT_OPTIONAL_LOCKS=%q want \"0\"", value)
 	}
 }
+
+// A rename or copy record carries its original path in the next NUL field, with no XY
+// prefix. An original name that starts with "!! " must not be read as an ignored entry.
+func TestParseIgnoredStatusSkipsRenameAndCopyOrigPaths(t *testing.T) {
+	out := []byte("R  b\x00!! a\x00" +
+		"C  d\x00!! c\x00" +
+		" R e\x00!! f\x00" +
+		"!! out/\x00" +
+		"?? new.txt\x00" +
+		" M main.go\x00" +
+		"!! svc/build/\x00")
+
+	if got, want := parseIgnoredStatus(out, ""), map[string]bool{"out": true, "svc/build": true}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("prefix \"\": got %v want %v", got, want)
+	}
+	if got, want := parseIgnoredStatus(out, "svc/"), map[string]bool{"build": true}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("prefix \"svc/\": got %v want %v", got, want)
+	}
+}
+
+// End to end: after `git mv "!! a" b`, status reports "R  b\0!! a\0". The tracked file "a"
+// must still be scanned.
+func TestScanKeepsFileNamedLikeRenameOrigPath(t *testing.T) {
+	root := t.TempDir()
+	initGitRepo(t, root, "")
+	writeFile(t, root, "!! a", "moved\n")
+	writeFile(t, root, "a", "kept\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-q", "-m", "fixture")
+	runGit(t, root, "mv", "!! a", "b")
+
+	got, err := Scan(root, Options{MaxDepth: DefaultMaxDepth})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if want := []string{"a", "b"}; !reflect.DeepEqual(pathsOf(got.Files), want) {
+		t.Fatalf("Files=%v want %v", pathsOf(got.Files), want)
+	}
+}

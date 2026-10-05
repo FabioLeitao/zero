@@ -57,10 +57,32 @@ func gitIgnoredPaths(root string) (map[string]bool, bool) {
 		return nil, false
 	}
 
+	return parseIgnoredStatus(out, prefix), true
+}
+
+// parseIgnoredStatus extracts the ignored paths from `git status --porcelain=v1 -z` output,
+// made relative to prefix (root's location inside the repository).
+//
+// Each record is "XY <path>". A rename or copy (R or C in either status column) is followed
+// by one more NUL field holding the original path with no XY prefix. That field is consumed,
+// not inspected: an original name that itself begins with "!! " would otherwise read as an
+// ignored entry and hide a real file from Scan.
+func parseIgnoredStatus(out []byte, prefix string) map[string]bool {
 	paths := make(map[string]bool)
+	skipOrigPath := false
 	for entry := range bytes.SplitSeq(out, []byte{0}) {
-		// Ignored entries are "!! <path>"; untracked "??", changes, and a rename's
-		// second NUL field are skipped.
+		if skipOrigPath {
+			skipOrigPath = false
+			continue
+		}
+		if len(entry) < 3 {
+			continue
+		}
+		if x, y := entry[0], entry[1]; x == 'R' || x == 'C' || y == 'R' || y == 'C' {
+			skipOrigPath = true
+			continue
+		}
+		// Ignored entries are "!! <path>"; untracked "??" and changed entries are skipped.
 		rest, ok := bytes.CutPrefix(entry, []byte("!! "))
 		if !ok {
 			continue
@@ -75,7 +97,7 @@ func gitIgnoredPaths(root string) (map[string]bool, bool) {
 		}
 		paths[rel] = true
 	}
-	return paths, true
+	return paths
 }
 
 // gitCommand builds a git invocation with a fixed argv (no shell) rooted at dir.
