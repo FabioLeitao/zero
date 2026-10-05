@@ -90,10 +90,8 @@ func TestScanBuildsDeterministicSnapshot(t *testing.T) {
 func TestScanDoesNotFollowSymlinkedDirectories(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "main.go", "package main\n")
-	// The real directory's name is incidental to what this test checks (a symlink to it must
-	// not be followed, the directory itself must be scanned). It must not be a name
-	// workspaceindex.ShouldSkipDir ignores ("target" is, since it is Cargo's build output),
-	// or the real directory would be skipped and the test would stop exercising the symlink.
+	// Not named "target": outside a git work tree Scan skips that name as Cargo build
+	// output, and the real directory must be scanned for this test to exercise the link.
 	target := filepath.Join(root, "real-dir")
 	writeFile(t, target, "hidden.go", "package hidden\n")
 	link := filepath.Join(root, "linked")

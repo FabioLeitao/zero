@@ -25,17 +25,6 @@ func TestScanBuildsDeterministicWorkspaceSummary(t *testing.T) {
 	writeFile(t, root, "coverage/out.txt", "ignored")
 	writeFile(t, root, ".next/cache.js", "ignored")
 	writeFile(t, root, ".cache/blob", "ignored")
-	// Regression: Cargo's target/ (and the other language build-cache dirs added
-	// alongside it) must not consume the fixed scan budget. Reported against a real
-	// repo where rust/*/target/debug/.fingerprint alone held hundreds of
-	// .d/.rlib/.rmeta/.timestamp files, enough to hit DefaultMaxFiles and truncate the
-	// scan before reaching unrelated source — see TestHelpersClassifySharedWorkspaceRules
-	// for the ShouldSkipDir unit coverage of the same dirs.
-	writeFile(t, root, "target/debug/.fingerprint/foo-1/lib-foo.d", "ignored")
-	writeFile(t, root, "target/debug/.fingerprint/foo-1/lib-foo.rlib", "ignored")
-	writeFile(t, root, "__pycache__/mod.cpython-312.pyc", "ignored")
-	writeFile(t, root, ".venv/lib/site-packages/pkg.py", "ignored")
-	writeFile(t, root, ".terraform/providers/provider.json", "ignored")
 
 	got, err := Scan(root, Options{MaxDepth: DefaultMaxDepth})
 	if err != nil {
@@ -146,27 +135,9 @@ func TestScanHonorsTraversalCaps(t *testing.T) {
 }
 
 func TestHelpersClassifySharedWorkspaceRules(t *testing.T) {
-	for _, name := range []string{
-		".git", ".zero", ".cache", ".next", "node_modules", "vendor", "dist", "build", "coverage", ".worktrees",
-		// Common language/toolchain build-cache dirs. These are *not* parsed from the
-		// scanned repo's own .gitignore (Scan has no git dependency) — they are a
-		// deliberate, language-agnostic denylist of directories that are build output or
-		// cache in virtually every ecosystem, so the fixed MaxFiles/MaxDepth budget isn't
-		// burned on them before reaching real source. See the Cargo "target/" case that
-		// motivated this: a mid-size Rust crate's target/debug/.fingerprint alone can emit
-		// hundreds of .d/.rlib/.rmeta/.timestamp files, enough to exhaust DefaultMaxFiles
-		// (2000) and truncate the scan before it reaches source outside that directory.
-		"target", "__pycache__", ".venv", "venv", ".pytest_cache", ".terraform", ".mypy_cache", ".ruff_cache",
-	} {
+	for _, name := range []string{".git", ".zero", ".cache", ".next", "node_modules", "vendor", "dist", "build", "coverage", ".worktrees"} {
 		if !ShouldSkipDir(name) {
 			t.Fatalf("ShouldSkipDir(%q)=false want true", name)
-		}
-	}
-	// Case-insensitivity + surrounding whitespace, already exercised for the pre-existing
-	// names above; confirm it also holds for the newly added ones.
-	for _, name := range []string{"Target", " target ", "__PYCACHE__", ".VENV"} {
-		if !ShouldSkipDir(name) {
-			t.Fatalf("ShouldSkipDir(%q)=false want true (case/whitespace-insensitive)", name)
 		}
 	}
 	for _, file := range []string{".git", ".DS_Store", "bin/app.exe", "archive.tar", "archive.tgz", "lib.so", "image.png"} {

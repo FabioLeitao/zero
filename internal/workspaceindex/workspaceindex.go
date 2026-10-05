@@ -63,11 +63,17 @@ func Scan(root string, options Options) (Summary, error) {
 		maxDepth = DefaultMaxDepth
 	}
 
-	// Best-effort: ask git which paths it already considers ignored, honoring the real
-	// .gitignore instead of only the fixed name denylist below. nil/false when root isn't
-	// a git work tree, git is unavailable, or the lookup times out — ShouldSkipDir and
-	// ShouldSkipFile alone still cover that case, same behavior as before this existed.
+	// Inside a git work tree, git's own ignore rules decide what else to skip; outside one
+	// (or when git is unavailable or too old), a fixed list of build/cache directory names
+	// stands in. Both apply to Scan only: ShouldSkipDir is shared with glob, grep,
+	// list_directory and path autocomplete, which must keep seeing these directories.
 	ignored, hasIgnored := gitIgnoredPaths(cleanRoot)
+	skipScanDir := func(rel, name string) bool {
+		if hasIgnored {
+			return ignored[rel]
+		}
+		return isScanOnlySkipDir(name)
+	}
 
 	files := []File{}
 	dirs := map[string]struct{}{}
@@ -89,7 +95,7 @@ func Scan(root string, options Options) (Summary, error) {
 		rel = filepath.ToSlash(rel)
 
 		if entry.IsDir() {
-			if ShouldSkipDir(entry.Name()) || isSymlink(entry) || (hasIgnored && ignored[rel]) {
+			if ShouldSkipDir(entry.Name()) || isSymlink(entry) || skipScanDir(rel, entry.Name()) {
 				return filepath.SkipDir
 			}
 			depth := pathDepth(rel)
@@ -174,8 +180,19 @@ func HandleWalkError(cleanRoot string, current string, entry fs.DirEntry, walkEr
 
 func ShouldSkipDir(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case ".cache", ".git", ".next", ".worktrees", ".zero", "build", "coverage", "dist", "node_modules", "vendor",
-		"target", "__pycache__", ".venv", "venv", ".pytest_cache", ".terraform", ".mypy_cache", ".ruff_cache":
+	case ".cache", ".git", ".next", ".worktrees", ".zero", "build", "coverage", "dist", "node_modules", "vendor":
+		return true
+	default:
+		return false
+	}
+}
+
+// isScanOnlySkipDir names build and cache directories Scan skips when it cannot ask git
+// what is ignored. It is deliberately separate from ShouldSkipDir: a tracked package named
+// "target" or a question about a dependency inside .venv must stay visible to the tools.
+func isScanOnlySkipDir(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "target", "__pycache__", ".venv", "venv", ".pytest_cache", ".terraform", ".mypy_cache", ".ruff_cache":
 		return true
 	default:
 		return false

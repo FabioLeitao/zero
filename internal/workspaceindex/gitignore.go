@@ -3,6 +3,7 @@ package workspaceindex
 import (
 	"bytes"
 	"context"
+	"os"
 	"os/exec"
 	"path"
 	"strings"
@@ -10,27 +11,30 @@ import (
 )
 
 // gitIgnoredPathsTimeout bounds how long Scan waits on git before giving up and falling
-// back to the static denylist alone. Large repos with many ignored files (vendored
-// node_modules, build caches) still resolve well under this on local disk; a slow/degenerate
-// case (network filesystem, huge monorepo) should not hang the whole scan.
+// back to the non-git behavior. Scan also runs for the per-turn workspace seed, so a slow or
+// degenerate tree (network filesystem, huge monorepo) must not stall a turn.
 const gitIgnoredPathsTimeout = 5 * time.Second
 
-// gitIgnoredPaths asks git which paths under root it considers ignored — honoring the real
-// .gitignore (nested files, .git/info/exclude, core.excludesFile, everything git itself
-// already resolves), not a hardcoded name list. Returns a set of paths relative to root —
-// whole ignored directories collapsed to one entry, plus individually ignored files — using
-// forward slashes and no trailing slash (matching the `rel` form Scan already computes).
+// gitIgnoredPaths asks git which paths under root it considers ignored, honoring every
+// source git itself resolves (nested .gitignore files, .git/info/exclude,
+// core.excludesFile). Returns a set of paths relative to root: whole ignored directories
+// collapsed to one entry plus individually ignored files, using forward slashes and no
+// trailing slash (the `rel` form Scan computes).
 //
-// Returns (nil, false) when root is not inside a git work tree, git is unavailable, or a
-// command times out/fails for any other reason — callers fall back to ShouldSkipDir and
-// ShouldSkipFile alone in every one of those cases. This is deliberately best-effort: a scan
-// must never fail or hang because of this.
+// Returns (nil, false) when root is not inside a git work tree, git is missing or older
+// than the floor below, or a command fails or times out. Scan then behaves as it does
+// outside git. A scan must never fail or hang because of this lookup.
 //
-// Why `git status --ignored=matching` and not `git ls-files --others --ignored --directory`:
-// ls-files stops descending at the first untracked directory, so an ignored directory or file
-// nested inside one (svc/build-out/, app/cache.db) is never reported. status descends,
-// collapses a fully-ignored directory to a single entry, and lists partially-ignored files
-// individually — the granularity Scan needs.
+// Git version floor: 2.16. `status --ignored=<mode>` landed in 2.16 and `--porcelain=v1`
+// in 2.11; an older git rejects the arguments, which lands on the (nil, false) path.
+// GIT_OPTIONAL_LOCKS (2.15) is an environment variable, so an older git ignores it.
+//
+// Why `status --ignored=matching` and not `ls-files --others --ignored --directory`:
+// ls-files stops descending at the first untracked directory, so an ignored directory or
+// file nested inside one (svc/build-out/, app/cache.db) is never reported. status descends,
+// collapses a fully ignored directory to a single entry, and lists partially ignored files
+// individually. `-uno` is not usable as a speedup: with it, status reports no ignored
+// entries at all.
 func gitIgnoredPaths(root string) (map[string]bool, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitIgnoredPathsTimeout)
 	defer cancel()
@@ -38,29 +42,25 @@ func gitIgnoredPaths(root string) (map[string]bool, bool) {
 	// status reports paths relative to the repository top level even when run from a
 	// subdirectory, while Scan's `rel` is relative to root. show-prefix is root's own
 	// location inside the repo ("" at the top level, "svc/" for <repo>/svc), and also the
-	// cheapest way to learn this is a git work tree at all.
-	prefixOut, err := gitOutput(ctx, root, "rev-parse", "--show-prefix")
+	// cheapest way to learn whether this is a git work tree at all.
+	prefixOut, err := gitCommand(ctx, root, "rev-parse", "--show-prefix").Output()
 	if err != nil {
-		// Covers: not a git repo, git missing from PATH, deadline exceeded. None of these
-		// are errors Scan should propagate.
 		return nil, false
 	}
 	prefix := strings.TrimSpace(string(prefixOut))
 
-	// --porcelain=v1: stable, script-oriented format. -z: NUL-terminated and unquoted —
-	// without it git C-quotes non-ASCII/special bytes (core.quotePath), e.g. "caf\303\251/",
-	// which would never match the raw `rel` Scan computes. --ignored=matching: list ignored
-	// paths, collapsing a directory that is ignored as a whole. The trailing "." limits the
-	// report to root even when root is a subdirectory of the repository.
-	out, err := gitOutput(ctx, root, "status", "--porcelain=v1", "-z", "--ignored=matching", ".")
+	// -z: NUL-terminated and unquoted. Without it git C-quotes non-ASCII bytes
+	// (core.quotePath), e.g. "caf\303\251/", which would never match the raw `rel`.
+	// The trailing "." limits the report to root when root is a repository subdirectory.
+	out, err := gitCommand(ctx, root, "status", "--porcelain=v1", "-z", "--ignored=matching", ".").Output()
 	if err != nil {
 		return nil, false
 	}
 
 	paths := make(map[string]bool)
 	for entry := range bytes.SplitSeq(out, []byte{0}) {
-		// Ignored entries are "!! <path>"; everything else (untracked "??", changes,
-		// renames' second NUL field) is not ours and is skipped.
+		// Ignored entries are "!! <path>"; untracked "??", changes, and a rename's
+		// second NUL field are skipped.
 		rest, ok := bytes.CutPrefix(entry, []byte("!! "))
 		if !ok {
 			continue
@@ -69,7 +69,6 @@ func gitIgnoredPaths(root string) (map[string]bool, bool) {
 		if !ok {
 			continue
 		}
-		// git prints a trailing "/" for directory entries; Scan's own `rel` never carries one.
 		rel = path.Clean(strings.TrimSuffix(rel, "/"))
 		if rel == "." || rel == "" {
 			continue
@@ -79,10 +78,15 @@ func gitIgnoredPaths(root string) (map[string]bool, bool) {
 	return paths, true
 }
 
-// gitOutput runs git in dir with a fixed argv list (no shell). dir is the caller's own
-// absolute path and the arguments are constants, so there is nothing to inject.
-func gitOutput(ctx context.Context, dir string, args ...string) ([]byte, error) {
+// gitCommand builds a git invocation with a fixed argv (no shell) rooted at dir.
+//
+// GIT_OPTIONAL_LOCKS=0 stops `git status` from taking .git/index.lock to refresh the
+// index stat cache. Scan runs on every turn, often while the user or the agent is running
+// git in the same repository; an opportunistic lock there can make a concurrent
+// `git commit` or `git add` fail with "index.lock exists".
+func gitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
 	// #nosec G204 -- fixed argv, no shell; dir is the caller's own absolute path.
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	return cmd.Output()
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	return cmd
 }
