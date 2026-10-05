@@ -1,0 +1,92 @@
+package workspaceindex
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"os/exec"
+	"path"
+	"strings"
+	"time"
+)
+
+// gitIgnoredPathsTimeout bounds how long Scan waits on git before giving up and falling
+// back to the non-git behavior. Scan also runs for the per-turn workspace seed, so a slow or
+// degenerate tree (network filesystem, huge monorepo) must not stall a turn.
+const gitIgnoredPathsTimeout = 5 * time.Second
+
+// gitIgnoredPaths asks git which paths under root it considers ignored, honoring every
+// source git itself resolves (nested .gitignore files, .git/info/exclude,
+// core.excludesFile). Returns a set of paths relative to root: whole ignored directories
+// collapsed to one entry plus individually ignored files, using forward slashes and no
+// trailing slash (the `rel` form Scan computes).
+//
+// Returns (nil, false) when root is not inside a git work tree, git is missing or older
+// than the floor below, or a command fails or times out. Scan then behaves as it does
+// outside git. A scan must never fail or hang because of this lookup.
+//
+// Git version floor: 2.16. `status --ignored=<mode>` landed in 2.16 and `--porcelain=v1`
+// in 2.11; an older git rejects the arguments, which lands on the (nil, false) path.
+// GIT_OPTIONAL_LOCKS (2.15) is an environment variable, so an older git ignores it.
+//
+// Why `status --ignored=matching` and not `ls-files --others --ignored --directory`:
+// ls-files stops descending at the first untracked directory, so an ignored directory or
+// file nested inside one (svc/build-out/, app/cache.db) is never reported. status descends,
+// collapses a fully ignored directory to a single entry, and lists partially ignored files
+// individually. `-uno` is not usable as a speedup: with it, status reports no ignored
+// entries at all.
+func gitIgnoredPaths(root string) (map[string]bool, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitIgnoredPathsTimeout)
+	defer cancel()
+
+	// status reports paths relative to the repository top level even when run from a
+	// subdirectory, while Scan's `rel` is relative to root. show-prefix is root's own
+	// location inside the repo ("" at the top level, "svc/" for <repo>/svc), and also the
+	// cheapest way to learn whether this is a git work tree at all.
+	prefixOut, err := gitCommand(ctx, root, "rev-parse", "--show-prefix").Output()
+	if err != nil {
+		return nil, false
+	}
+	prefix := strings.TrimSpace(string(prefixOut))
+
+	// -z: NUL-terminated and unquoted. Without it git C-quotes non-ASCII bytes
+	// (core.quotePath), e.g. "caf\303\251/", which would never match the raw `rel`.
+	// The trailing "." limits the report to root when root is a repository subdirectory.
+	out, err := gitCommand(ctx, root, "status", "--porcelain=v1", "-z", "--ignored=matching", ".").Output()
+	if err != nil {
+		return nil, false
+	}
+
+	paths := make(map[string]bool)
+	for entry := range bytes.SplitSeq(out, []byte{0}) {
+		// Ignored entries are "!! <path>"; untracked "??", changes, and a rename's
+		// second NUL field are skipped.
+		rest, ok := bytes.CutPrefix(entry, []byte("!! "))
+		if !ok {
+			continue
+		}
+		rel, ok := strings.CutPrefix(string(rest), prefix)
+		if !ok {
+			continue
+		}
+		rel = path.Clean(strings.TrimSuffix(rel, "/"))
+		if rel == "." || rel == "" {
+			continue
+		}
+		paths[rel] = true
+	}
+	return paths, true
+}
+
+// gitCommand builds a git invocation with a fixed argv (no shell) rooted at dir.
+//
+// GIT_OPTIONAL_LOCKS=0 stops `git status` from taking .git/index.lock to refresh the
+// index stat cache. Scan runs on every turn, often while the user or the agent is running
+// git in the same repository; an opportunistic lock there can make a concurrent
+// `git commit` or `git add` fail with "index.lock exists".
+func gitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
+	// #nosec G204 -- fixed argv, no shell; dir is the caller's own absolute path.
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	return cmd
+}
