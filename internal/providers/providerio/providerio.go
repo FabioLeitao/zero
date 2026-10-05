@@ -159,15 +159,44 @@ func NormalizeBaseURL(baseURL string, defaultBaseURL string, label string) (stri
 //     to the minutes-long stalls this avoids — and this doesn't touch
 //     Linux/Windows, where the underlying OS doesn't keep dead/degraded
 //     pooled connections around as long.
+//
+// responseHeaderTimeoutEnv overrides the default ResponseHeaderTimeout below.
+// Same accepted forms as ZERO_STREAM_IDLE_TIMEOUT ("5m", "300s", "90"); unset,
+// empty, or unparseable falls back to defaultResponseHeaderTimeout.
+//
+// Upstream's 120s default (see below) is left untouched here on purpose: a
+// throttled local Ollama model's real measured TTFT (cold load, low
+// num_gpu/num_thread) ran 1-5min in practice in this deployment, exceeding
+// 120s on a cold start and firing this timeout on an otherwise-alive request
+// - but that's a property of our specific slow local setup, not a case for
+// silently overriding gitlawb/zero's chosen default for every deployment.
+// Set ZERO_RESPONSE_HEADER_TIMEOUT=240s (or higher) in this deployment's own
+// environment instead.
+const responseHeaderTimeoutEnv = "ZERO_RESPONSE_HEADER_TIMEOUT"
+
+// defaultResponseHeaderTimeout matches upstream unchanged: 120s ("not 60s: a
+// slow cloud proxy... can withhold its 200 response header until the
+// upstream model emits a first token"). Still bounds a truly dead reused
+// connection while tolerating slow header delivery for most deployments.
+const defaultResponseHeaderTimeout = 120 * time.Second
+
+func resolveResponseHeaderTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv(responseHeaderTimeoutEnv))
+	if raw == "" {
+		return defaultResponseHeaderTimeout
+	}
+	if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+		return d
+	}
+	if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
+		return time.Duration(secs) * time.Second
+	}
+	return defaultResponseHeaderTimeout
+}
+
 var sharedHTTPClient = func() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	// 120s, not 60s: a slow cloud proxy (e.g. ollama `*:cloud`) can withhold its
-	// 200 response header until the upstream model emits a first token, so a 60s cap
-	// risked aborting a legitimately-slow-but-alive request. 120s still bounds a
-	// truly dead reused connection (which never responds) while tolerating slow
-	// header delivery; slow first tokens after the header are covered by the idle +
-	// content-stall watchdogs.
-	transport.ResponseHeaderTimeout = 120 * time.Second
+	transport.ResponseHeaderTimeout = resolveResponseHeaderTimeout()
 	transport.IdleConnTimeout = 30 * time.Second
 	// Periodically close idle connections to prevent stale HTTP/2
 	// connections from causing PROTOCOL_ERROR on the next request.
