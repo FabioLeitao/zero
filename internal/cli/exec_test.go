@@ -688,7 +688,7 @@ func TestRunExecEmitsDegradedSandboxWarning(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("exitCode = %d, want %d; stderr=%q", exitCode, exitSuccess, stderr.String())
 	}
-	for _, want := range []string{"WARNING", "Sandbox enforcement is DEGRADED", "Linux sandbox helper is not available", "zero doctor"} {
+	for _, want := range []string{"WARNING", "Sandbox enforcement is degraded", "Linux sandbox helper is not available", "zero doctor"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
 		}

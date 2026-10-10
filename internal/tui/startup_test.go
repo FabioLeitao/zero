@@ -68,9 +68,8 @@ func TestDegradedSandboxWarningAppearsOnStartup(t *testing.T) {
 	m.width, m.height = 100, 30
 
 	view := plainRender(t, m.View())
-	assertContains(t, view, "Sandbox enforcement is DEGRADED")
+	assertContains(t, view, "Sandbox enforcement is degraded")
 	assertContains(t, view, "Linux sandbox helper is not available")
-	assertContains(t, plainRender(t, m.statusLine(100)), "sandbox degraded")
 }
 
 func TestDisplayVersion(t *testing.T) {

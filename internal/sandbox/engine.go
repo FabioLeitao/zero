@@ -113,12 +113,12 @@ func EnforcementWarning(engine *Engine) string {
 	if level != EnforcementDegraded {
 		return ""
 	}
-	warning := "Sandbox enforcement is DEGRADED: native OS isolation is inactive, so shell commands run with reduced protection."
+	warning := "Sandbox enforcement is degraded"
 	reason = strings.TrimSpace(reason)
 	if reason != "" {
-		warning += " Reason: " + strings.TrimRight(reason, ".") + "."
+		warning += " (" + strings.TrimRight(reason, ".") + ")"
 	}
-	return warning + " Run `zero doctor` for setup guidance."
+	return warning + ": shell commands run with reduced isolation. Run `zero doctor` for setup guidance."
 }
 
 func (engine *Engine) CanPersistGrants() bool {

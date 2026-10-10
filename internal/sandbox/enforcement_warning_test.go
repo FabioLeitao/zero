@@ -26,7 +26,7 @@ func TestEnforcementWarningUsesManagerDecision(t *testing.T) {
 			t.Fatalf("EnforcementStatus() = %q, %q; want degraded with helper reason", level, reason)
 		}
 		warning := EnforcementWarning(engine)
-		for _, want := range []string{"DEGRADED", reason, "zero doctor"} {
+		for _, want := range []string{"degraded", reason, "zero doctor"} {
 			if !strings.Contains(warning, want) {
 				t.Fatalf("EnforcementWarning() = %q, want %q", warning, want)
 			}
