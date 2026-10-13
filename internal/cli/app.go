@@ -111,10 +111,6 @@ type appDeps struct {
 	checkUpdate                  func(context.Context, update.Options) (update.Result, error)
 	applyUpdate                  func(context.Context, update.Options) (update.ApplyResult, error)
 	now                          func() time.Time
-	// sandboxEnforcementWarning is set only by defaultAppDeps. Keeping it nil in
-	// injected test deps prevents ambient host sandbox availability from adding
-	// warnings to otherwise-hermetic CLI protocol tests; focused tests opt in.
-	sandboxEnforcementWarning func(*sandbox.Engine) string
 }
 
 type mcpToolRuntime interface {
@@ -197,8 +193,7 @@ func defaultAppDeps() appDeps {
 		newSandboxStore: func() (*sandbox.GrantStore, error) {
 			return sandbox.NewGrantStore(sandbox.StoreOptions{})
 		},
-		selectSandboxBackend:      sandbox.SelectBackend,
-		sandboxEnforcementWarning: sandbox.EnforcementWarning,
+		selectSandboxBackend: sandbox.SelectBackend,
 		runSandboxSetupHelper: func(path string, args []string, stdout io.Writer, stderr io.Writer) error {
 			cmd := exec.Command(path, args...)
 			cmd.Stdout = stdout

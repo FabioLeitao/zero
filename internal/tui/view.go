@@ -209,21 +209,17 @@ func (m model) statusLine(width int) string {
 	if m.btw.active {
 		btwChip = zeroTheme.amber.Render("BTW") + zeroTheme.muted.Render(" · ")
 	}
-	sandboxChip := ""
-	if m.sandboxWarning != "" {
-		sandboxChip = zeroTheme.amber.Render("⚠ sandbox degraded") + separator
-	}
-	left := prefix + sandboxChip + btwChip + zeroTheme.accent.Render("●") + " " + modeStyle.Render(modeText)
+	left := prefix + btwChip + zeroTheme.accent.Render("●") + " " + modeStyle.Render(modeText)
 
 	if tier == tierTiny {
 		if m.exitConfirmActive {
-			return fitStyledLine(prefix+sandboxChip+btwChip+zeroTheme.amber.Render("●")+" "+zeroTheme.amber.Render(ctrlCExitConfirmText), width)
+			return fitStyledLine(prefix+btwChip+zeroTheme.amber.Render("●")+" "+zeroTheme.amber.Render(ctrlCExitConfirmText), width)
 		}
 		if m.cancelConfirmActive {
-			return fitStyledLine(prefix+sandboxChip+btwChip+zeroTheme.amber.Render("●")+" "+zeroTheme.amber.Render(escCancelConfirmText), width)
+			return fitStyledLine(prefix+btwChip+zeroTheme.amber.Render("●")+" "+zeroTheme.amber.Render(escCancelConfirmText), width)
 		}
 		if dictation := m.dictationStatusChip(); dictation != "" {
-			return fitStyledLine(prefix+sandboxChip+btwChip+dictation, width)
+			return fitStyledLine(prefix+btwChip+dictation, width)
 		}
 		if goalSummary := m.goalFooterSummary(); goalSummary != "" {
 			left += zeroTheme.muted.Render(" · ") + zeroTheme.accent.Render("◎ ") + zeroTheme.muted.Render(goalSummary)
@@ -239,16 +235,16 @@ func (m model) statusLine(width int) string {
 		left += zeroTheme.muted.Render(" · ") + zeroTheme.accent.Render("fast")
 	}
 	if m.exitConfirmActive {
-		left = prefix + sandboxChip + btwChip + zeroTheme.amber.Render("●") + " " + zeroTheme.amber.Render(ctrlCExitConfirmText)
+		left = prefix + btwChip + zeroTheme.amber.Render("●") + " " + zeroTheme.amber.Render(ctrlCExitConfirmText)
 	} else if m.cancelConfirmActive {
-		left = prefix + sandboxChip + btwChip + zeroTheme.amber.Render("●") + " " + zeroTheme.amber.Render(escCancelConfirmText)
+		left = prefix + btwChip + zeroTheme.amber.Render("●") + " " + zeroTheme.amber.Render(escCancelConfirmText)
 	} else if m.dictation.downloading && m.dictation.downloadStatus != "" {
 		// A model download in progress takes over the left chip with a live percentage.
-		left = prefix + sandboxChip + btwChip + zeroTheme.accent.Render("⬇ ") + zeroTheme.muted.Render(m.dictation.downloadStatus)
+		left = prefix + btwChip + zeroTheme.accent.Render("⬇ ") + zeroTheme.muted.Render(m.dictation.downloadStatus)
 	} else if dictation := m.dictationStatusChip(); dictation != "" && m.dictation.active() {
 		// An active recording/transcription takes over the left chip — it is the
 		// most time-sensitive thing on screen (the mic is live).
-		left = prefix + sandboxChip + btwChip + dictation
+		left = prefix + btwChip + dictation
 	} else {
 		if voice := m.voiceModeIndicator(); voice != "" {
 			left += zeroTheme.muted.Render(" · ") + voice

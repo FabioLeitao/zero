@@ -107,7 +107,6 @@ type model struct {
 	peerApprovalQueue    []peermsg.InboundMessage
 	peerPendingApproval  *peermsg.InboundMessage
 	sandboxStore         *sandbox.GrantStore
-	sandboxWarning       string
 	mcpConfig            config.MCPConfig
 	mcpPermissionStore   *internalmcp.PermissionStore
 	mcpTokenStore        *internalmcp.TokenStore
@@ -958,15 +957,6 @@ func newModel(ctx context.Context, options Options) model {
 		sessionStore = sessions.NewStore(sessions.StoreOptions{})
 	}
 	sandboxStore := options.SandboxStore
-	sandboxWarning := sandbox.EnforcementWarning(options.AgentOptions.Sandbox)
-	transcript := initialTranscript()
-	if sandboxWarning != "" {
-		transcript = appendTranscriptRow(transcript, transcriptRow{
-			kind: rowSystem,
-			tool: "sandbox-warning",
-			text: sandboxWarning,
-		})
-	}
 	modelCatalog, err := modelregistry.DefaultRegistry()
 	if err != nil {
 		panic(err)
@@ -1058,7 +1048,6 @@ func newModel(ctx context.Context, options Options) model {
 		sessionStore:                sessionStore,
 		peerService:                 options.PeerService,
 		sandboxStore:                sandboxStore,
-		sandboxWarning:              sandboxWarning,
 		mcpConfig:                   options.MCPConfig,
 		mcpPermissionStore:          options.MCPPermissionStore,
 		mcpTokenStore:               options.MCPTokenStore,
@@ -1081,7 +1070,7 @@ func newModel(ctx context.Context, options Options) model {
 		notifyFocusMode:             strings.TrimSpace(options.Notify.FocusMode),
 		userAgent:                   options.UserAgent,
 		usageTracker:                usageTracker,
-		transcript:                  transcript,
+		transcript:                  initialTranscript(),
 		transcriptBodyHeights:       newTranscriptBodyHeightCache(defaultTranscriptBodyHeightCacheMaxEntries),
 		transcriptInteraction:       &transcriptRenderInteraction{},
 		prService:                   prService,
