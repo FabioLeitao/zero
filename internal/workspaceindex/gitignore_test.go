@@ -235,6 +235,51 @@ func TestShouldSkipDirLeavesScanOnlyDirsVisibleToTools(t *testing.T) {
 	}
 }
 
+// A repository's core.fsmonitor can run an external command during status; Scan must not
+// trigger it (disable fsmonitor for the git child).
+func TestGitIgnoredPathsDisablesRepoFsmonitor(t *testing.T) {
+	root := t.TempDir()
+	initGitRepo(t, root, ".locust_env/\n")
+	writeFile(t, root, "README.md", "# x\n")
+	writeFile(t, root, ".locust_env/lib/x.py", "x\n")
+
+	marker := filepath.Join(root, ".fsmonitor-ran")
+	script := filepath.Join(root, "fsmonitor-hook.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0o755); err != nil {
+		t.Fatalf("write fsmonitor hook: %v", err)
+	}
+	runGit(t, root, "config", "core.fsmonitor", script)
+
+	if _, err := Scan(root, Options{MaxDepth: DefaultMaxDepth}); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatalf("fsmonitor hook ran during Scan (marker %q exists)", marker)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat marker: %v", err)
+	}
+}
+
+// status.showUntrackedFiles=no makes git reject --ignored=matching unless
+// --untracked-files=normal is passed explicitly; ignored paths must still come from git.
+func TestScanHonorsRepoGitignoreWhenShowUntrackedFilesNo(t *testing.T) {
+	root := t.TempDir()
+	initGitRepo(t, root, ".locust_env/\n")
+	runGit(t, root, "config", "status.showUntrackedFiles", "no")
+	writeFile(t, root, "README.md", "# Example\n")
+	writeFile(t, root, "app/main.py", "print('hi')\n")
+	writeFile(t, root, ".locust_env/lib/x.py", "vendored\n")
+
+	got, err := Scan(root, Options{MaxDepth: DefaultMaxDepth})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	want := []string{".gitignore", "README.md", "app/main.py"}
+	if !reflect.DeepEqual(pathsOf(got.Files), want) {
+		t.Fatalf("Files=%v want %v", pathsOf(got.Files), want)
+	}
+}
+
 // The ignored-path lookup runs every turn, often next to a git command the user or agent
 // is running in the same repository. It must not take the optional index lock, and a
 // GIT_OPTIONAL_LOCKS value inherited from the environment must not re-enable it.
