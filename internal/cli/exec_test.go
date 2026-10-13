@@ -569,8 +569,8 @@ func TestRunExecAcceptsLegacyModelProfileFlags(t *testing.T) {
 	if !strings.Contains(stdout, "hello") {
 		t.Fatalf("expected prompt output, got %q", stdout)
 	}
-	if stderr != "" {
-		t.Fatalf("expected empty stderr, got %q", stderr)
+	if stderr != hostSandboxNotice(t) {
+		t.Fatalf("expected no stderr beyond this host's sandbox notice, got %q", stderr)
 	}
 }
 
@@ -741,8 +741,8 @@ func TestRunExecAssemblesInlineAndFilePromptRelativeToCwd(t *testing.T) {
 	if !strings.Contains(stdout, "inline prompt\n\nfile prompt") {
 		t.Fatalf("expected inline and file prompt joined by blank line, got %q", stdout)
 	}
-	if stderr != "" {
-		t.Fatalf("expected empty stderr, got %q", stderr)
+	if stderr != hostSandboxNotice(t) {
+		t.Fatalf("expected no stderr beyond this host's sandbox notice, got %q", stderr)
 	}
 }
 
@@ -760,8 +760,8 @@ func TestRunExecAcceptsFileOnlyPrompt(t *testing.T) {
 	if !strings.Contains(stdout, "file only prompt") {
 		t.Fatalf("expected file prompt output, got %q", stdout)
 	}
-	if stderr != "" {
-		t.Fatalf("expected empty stderr, got %q", stderr)
+	if stderr != hostSandboxNotice(t) {
+		t.Fatalf("expected no stderr beyond this host's sandbox notice, got %q", stderr)
 	}
 }
 
@@ -843,8 +843,8 @@ func TestRunExecJSONOutputsNDJSONEvents(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d: %s", exitCode, stderr)
 	}
-	if stderr != "" {
-		t.Fatalf("expected empty stderr, got %q", stderr)
+	if stderr != hostSandboxNotice(t) {
+		t.Fatalf("expected no stderr beyond this host's sandbox notice, got %q", stderr)
 	}
 
 	events := decodeJSONLines(t, stdout)
@@ -878,8 +878,8 @@ func TestRunExecResolvesCanonicalModelAlias(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d: %s", exitCode, stderr)
 	}
-	if stderr != "" {
-		t.Fatalf("expected empty stderr for active model, got %q", stderr)
+	if stderr != hostSandboxNotice(t) {
+		t.Fatalf("expected no stderr beyond this host's sandbox notice for active model, got %q", stderr)
 	}
 	events := decodeJSONLines(t, stdout)
 	if got := events[0]["model"]; got != "gpt-4.1" {
@@ -971,8 +971,8 @@ func TestRunExecJSONUnsafeOutputsWarningEvent(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d: %s", exitCode, stderr)
 	}
-	if stderr != "" {
-		t.Fatalf("expected empty stderr, got %q", stderr)
+	if stderr != hostSandboxNotice(t) {
+		t.Fatalf("expected no stderr beyond this host's sandbox notice, got %q", stderr)
 	}
 
 	events := decodeJSONLines(t, stdout)
@@ -1015,10 +1015,10 @@ func TestRunExecUsesProjectConfigAndOpenAICompatibleProvider(t *testing.T) {
 			"name": "local",
 			"provider_kind": "openai-compatible",
 			"base_url": "` + server.URL + `",
-			"api_key": "sk-local",
-			"model": "local-model"
-		}]
-	}`
+		"api_key": "sk-local",
+		"model": "local-model"
+	}]
+}`
 	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(writeConfig), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1035,8 +1035,8 @@ func TestRunExecUsesProjectConfigAndOpenAICompatibleProvider(t *testing.T) {
 	if strings.TrimSpace(stdout.String()) != "provider ok" {
 		t.Fatalf("stdout = %q, want provider response", stdout.String())
 	}
-	if stderr.Len() != 0 {
-		t.Fatalf("expected empty stderr, got %q", stderr.String())
+	if stderr.String() != hostSandboxNotice(t) {
+		t.Fatalf("expected no stderr beyond this host's sandbox notice, got %q", stderr.String())
 	}
 	if gotAuth != "Bearer sk-local" {
 		t.Fatalf("Authorization = %q, want project config token", gotAuth)
@@ -1251,8 +1251,8 @@ func TestRunExecAutoHighEmitsUnsafeWarning(t *testing.T) {
 	if exitCode != exitSuccess {
 		t.Fatalf("expected exit code %d, got %d: %s", exitSuccess, exitCode, stderr)
 	}
-	if stderr != "" {
-		t.Fatalf("expected empty stderr, got %q", stderr)
+	if stderr != hostSandboxNotice(t) {
+		t.Fatalf("expected no stderr beyond this host's sandbox notice, got %q", stderr)
 	}
 
 	events := decodeJSONLines(t, stdout)
