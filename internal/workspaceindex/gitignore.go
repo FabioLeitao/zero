@@ -52,7 +52,9 @@ func gitIgnoredPaths(root string) (map[string]bool, bool) {
 	// -z: NUL-terminated and unquoted. Without it git C-quotes non-ASCII bytes
 	// (core.quotePath), e.g. "caf\303\251/", which would never match the raw `rel`.
 	// The trailing "." limits the report to root when root is a repository subdirectory.
-	out, err := gitCommand(ctx, root, "status", "--porcelain=v1", "-z", "--ignored=matching", ".").Output()
+	// --untracked-files=normal: status.showUntrackedFiles=no makes git reject
+	// --ignored=matching; without an explicit override Scan falls back to the fixed list.
+	out, err := gitCommand(ctx, root, "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored=matching", ".").Output()
 	if err != nil {
 		return nil, false
 	}
@@ -108,7 +110,9 @@ func parseIgnoredStatus(out []byte, prefix string) map[string]bool {
 // `git commit` or `git add` fail with "index.lock exists".
 func gitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
 	// #nosec G204 -- fixed argv, no shell; dir is the caller's own absolute path.
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	// core.fsmonitor in .git/config can point at a command git status runs; disable it so
+	// Scan never executes foreign hooks from the repository under scan.
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir, "-c", "core.fsmonitor=false"}, args...)...)
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	return cmd
 }
