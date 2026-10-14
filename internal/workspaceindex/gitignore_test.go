@@ -235,8 +235,13 @@ func TestShouldSkipDirLeavesScanOnlyDirsVisibleToTools(t *testing.T) {
 	}
 }
 
-// A repository's core.fsmonitor can run an external command during status; Scan must not
-// trigger it (disable fsmonitor for the git child).
+// A repository's core.fsmonitor can run an external command during status; the
+// ignored-path lookup must not trigger it. The marker path is quoted and uses
+// forward slashes: Git for Windows runs the hook with sh, and an unquoted
+// backslash path (touch C:\tmp\run\marker) creates C:tmprunmarker, so the hook
+// can run while the marker this test stats is never created. A status without
+// the override must create the marker first; otherwise a hook that does not
+// run would still pass.
 func TestGitIgnoredPathsDisablesRepoFsmonitor(t *testing.T) {
 	root := t.TempDir()
 	initGitRepo(t, root, ".locust_env/\n")
@@ -245,16 +250,25 @@ func TestGitIgnoredPathsDisablesRepoFsmonitor(t *testing.T) {
 
 	marker := filepath.Join(root, ".fsmonitor-ran")
 	script := filepath.Join(root, "fsmonitor-hook.sh")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0o755); err != nil {
+	hook := "#!/bin/sh\ntouch '" + filepath.ToSlash(marker) + "'\n"
+	if err := os.WriteFile(script, []byte(hook), 0o755); err != nil {
 		t.Fatalf("write fsmonitor hook: %v", err)
 	}
 	runGit(t, root, "config", "core.fsmonitor", script)
 
-	if _, err := Scan(root, Options{MaxDepth: DefaultMaxDepth}); err != nil {
-		t.Fatalf("Scan: %v", err)
+	runGit(t, root, "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored=matching", ".")
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("fsmonitor hook did not run without the override: %v", err)
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatalf("remove marker: %v", err)
+	}
+
+	if _, ok := gitIgnoredPaths(root); !ok {
+		t.Fatal("gitIgnoredPaths failed")
 	}
 	if _, err := os.Stat(marker); err == nil {
-		t.Fatalf("fsmonitor hook ran during Scan (marker %q exists)", marker)
+		t.Fatalf("fsmonitor hook ran during gitIgnoredPaths (marker %q exists)", marker)
 	} else if !os.IsNotExist(err) {
 		t.Fatalf("stat marker: %v", err)
 	}
