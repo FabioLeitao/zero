@@ -485,6 +485,103 @@ func TestTUISandboxSetupCommandGatedToWindowsNativeBackend(t *testing.T) {
 }
 
 func TestRunSandboxPolicyJSONGoldenIncludesManagerBaselineFields(t *testing.T) {
+	// Pin before any t.TempDir so an ambient temp dir cannot reach the snapshot.
+	// Unix reads TMPDIR (and always considers /tmp). Windows reads TEMP and TMP.
+	// XDG_RUNTIME_DIR is not a temp write-root candidate.
+	pinSandboxPolicyGoldenTempEnv(t)
+	assertSandboxPolicyJSONGolden(t, "")
+}
+
+// TestRunSandboxPolicyJSONGoldenNestedTempDir runs the same golden with a temp
+// directory that sits inside another one.
+//
+// NewScope drops a root covered by an earlier one. The policy JSON is built
+// with a nil scope, so it still lists every candidate, and the golden
+// normalizer only removes what NewScope reports. A TMPDIR inside /tmp (or a
+// TMP inside TEMP) therefore survives normalization. This test pins the
+// variables the snapshot reads: on Unix TMPDIR is the inner directory, and
+// only when that directory is not inside the hard-coded /tmp, so NewScope
+// keeps both roots and the normalizer strips both; on Windows TEMP and TMP
+// name the same outer directory, because pointing TMP at the inner one is
+// the leak. The inner path must not remain in the normalized JSON.
+func TestRunSandboxPolicyJSONGoldenNestedTempDir(t *testing.T) {
+	outer := sandboxGoldenTempDirOutside(t, ".")
+	inner := filepath.Join(outer, "inner")
+	if err := os.MkdirAll(inner, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", inner, err)
+	}
+	pinned := outer
+	switch runtime.GOOS {
+	case "windows":
+		t.Setenv("TEMP", outer)
+		t.Setenv("TMP", outer)
+	default:
+		if sandboxPathInside("/tmp", inner) {
+			t.Fatalf("nested TMPDIR %q sits inside /tmp; NewScope would drop it and the golden would mismatch", inner)
+		}
+		t.Setenv("TMPDIR", inner)
+		pinned = inner
+	}
+	normalized := assertSandboxPolicyJSONGolden(t, pinned)
+	for _, leaked := range []string{outer, inner} {
+		if strings.Contains(normalized, leaked) || strings.Contains(normalized, filepath.ToSlash(leaked)) {
+			t.Fatalf("normalized policy leaked temp root %q:\n%s", leaked, normalized)
+		}
+	}
+}
+
+// pinSandboxPolicyGoldenTempEnv fixes the temp variables
+// defaultTempWriteRootCandidatesForGOOS reads so the golden does not depend on
+// the process environment. An empty TMPDIR leaves the Unix hard-coded /tmp as
+// the only candidate. TEMP and TMP name one directory so neither is nested in
+// the other.
+func pinSandboxPolicyGoldenTempEnv(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		dir := t.TempDir()
+		t.Setenv("TEMP", dir)
+		t.Setenv("TMP", dir)
+		return
+	}
+	t.Setenv("TMPDIR", "")
+}
+
+func sandboxGoldenTempDirOutside(t *testing.T, parent string) string {
+	t.Helper()
+	dir, err := os.MkdirTemp(parent, ".zero-sandbox-golden-")
+	if err != nil {
+		t.Fatalf("MkdirTemp(%q): %v", parent, err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatalf("Abs(%q): %v", dir, err)
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", abs, err)
+	}
+	return resolved
+}
+
+func sandboxPathInside(parent string, child string) bool {
+	resolvedParent := parent
+	if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+		resolvedParent = resolved
+	}
+	resolvedChild := child
+	if resolved, err := filepath.EvalSymlinks(child); err == nil {
+		resolvedChild = resolved
+	}
+	relative, err := filepath.Rel(resolvedParent, resolvedChild)
+	if err != nil {
+		return false
+	}
+	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative))
+}
+
+func assertSandboxPolicyJSONGolden(t *testing.T, mustList string) string {
+	t.Helper()
 	// Point all user-config roots at an empty directory so the platform-specific
 	// credential deny baseline can be asserted without leaking host paths into
 	// the platform-neutral golden comparison.
@@ -526,8 +623,8 @@ func TestRunSandboxPolicyJSONGoldenIncludesManagerBaselineFields(t *testing.T) {
 		t.Fatalf("policy exit = %d, stderr %q", exitCode, stderr.String())
 	}
 
-	got := stdout.String()
-	got = replacePathToken(got, workspace, "$WORKSPACE")
+	raw := stdout.String()
+	got := replacePathToken(raw, workspace, "$WORKSPACE")
 	got = replacePathToken(got, store.FilePath(), "$GRANTS")
 	gotBytes := normalizeSandboxPolicyGoldenTempRoots(t, []byte(got), workspace, emptyHome)
 	wantBytes, err := os.ReadFile(filepath.Join("testdata", "sandbox_policy_windows_unavailable.golden.json"))
@@ -537,6 +634,10 @@ func TestRunSandboxPolicyJSONGoldenIncludesManagerBaselineFields(t *testing.T) {
 	if !jsonValuesEqual(t, wantBytes, gotBytes) {
 		t.Fatalf("policy JSON golden mismatch\nwant:\n%s\ngot:\n%s", string(wantBytes), string(gotBytes))
 	}
+	if mustList != "" && !strings.Contains(raw, mustList) {
+		t.Fatalf("policy JSON did not list pinned temp root %q\n%s", mustList, raw)
+	}
+	return string(gotBytes)
 }
 
 func normalizeSandboxPolicyGoldenTempRoots(t *testing.T, gotBytes []byte, workspace string, emptyHome string) []byte {
