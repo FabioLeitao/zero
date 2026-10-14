@@ -236,12 +236,14 @@ func TestShouldSkipDirLeavesScanOnlyDirsVisibleToTools(t *testing.T) {
 }
 
 // A repository's core.fsmonitor can run an external command during status; the
-// ignored-path lookup must not trigger it. The marker path is quoted and uses
-// forward slashes: Git for Windows runs the hook with sh, and an unquoted
-// backslash path (touch C:\tmp\run\marker) creates C:tmprunmarker, so the hook
-// can run while the marker this test stats is never created. A status without
-// the override must create the marker first; otherwise a hook that does not
-// run would still pass.
+// ignored-path lookup must not trigger it. Git for Windows hands both that
+// command and the hook body to sh, which consumes backslashes. The script path
+// stored in core.fsmonitor and the marker path inside the hook are quoted and
+// use forward slashes: an unquoted backslash script path never starts the
+// hook, and an unquoted backslash marker (touch C:\tmp\run\marker) creates
+// C:tmprunmarker, so the file this test stats is never created. A status
+// without the override must create the marker first; otherwise a hook that
+// does not run would still pass.
 func TestGitIgnoredPathsDisablesRepoFsmonitor(t *testing.T) {
 	root := t.TempDir()
 	initGitRepo(t, root, ".locust_env/\n")
@@ -254,7 +256,7 @@ func TestGitIgnoredPathsDisablesRepoFsmonitor(t *testing.T) {
 	if err := os.WriteFile(script, []byte(hook), 0o755); err != nil {
 		t.Fatalf("write fsmonitor hook: %v", err)
 	}
-	runGit(t, root, "config", "core.fsmonitor", script)
+	runGit(t, root, "config", "core.fsmonitor", "'"+filepath.ToSlash(script)+"'")
 
 	runGit(t, root, "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored=matching", ".")
 	if _, err := os.Stat(marker); err != nil {
