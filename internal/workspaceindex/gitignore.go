@@ -113,6 +113,27 @@ func gitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
 	// core.fsmonitor in .git/config can point at a command git status runs; disable it so
 	// Scan never executes foreign hooks from the repository under scan.
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir, "-c", "core.fsmonitor=false"}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	cmd.Env = append(withoutRepoLocationEnv(os.Environ()), "GIT_OPTIONAL_LOCKS=0")
 	return cmd
+}
+
+// withoutRepoLocationEnv drops the repository path overrides from git(1),
+// "The Git Repository": GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, GIT_COMMON_DIR,
+// GIT_OBJECT_DIRECTORY, and GIT_ALTERNATE_OBJECT_DIRECTORIES. Hooks export
+// them (githooks(5)) so git commands inside the hook find that repository.
+// Inherited, -C dir still describes the hook's repository, and Scan applies
+// its ignore rules instead of the tree under dir. GIT_CEILING_DIRECTORIES is
+// not one of these; it only bounds discovery and must be inherited.
+func withoutRepoLocationEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		switch key {
+		case "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR",
+			"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES":
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }

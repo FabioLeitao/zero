@@ -280,6 +280,40 @@ func TestScanHonorsRepoGitignoreWhenShowUntrackedFilesNo(t *testing.T) {
 	}
 }
 
+// Git exports repository-location variables to hooks (githooks(5)). With them
+// pointing at another repository, Scan must still apply root's own .gitignore
+// and match a lookup made without those variables.
+func TestScanIgnoresInheritedRepositoryLocation(t *testing.T) {
+	root := t.TempDir()
+	initGitRepo(t, root, ".locust_env/\n")
+	writeFile(t, root, "README.md", "# Example\n")
+	writeFile(t, root, ".locust_env/lib/x.py", "vendored\n")
+
+	clean, err := Scan(root, Options{MaxDepth: DefaultMaxDepth})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	other := t.TempDir()
+	initGitRepo(t, other, "")
+	writeFile(t, other, "README.md", "other\n")
+	gitDir := filepath.Join(other, ".git")
+	t.Setenv("GIT_DIR", gitDir)
+	t.Setenv("GIT_WORK_TREE", other)
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(gitDir, "index"))
+	t.Setenv("GIT_COMMON_DIR", gitDir)
+	t.Setenv("GIT_OBJECT_DIRECTORY", filepath.Join(gitDir, "objects"))
+	t.Setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", filepath.Join(gitDir, "objects"))
+
+	got, err := Scan(root, Options{MaxDepth: DefaultMaxDepth})
+	if err != nil {
+		t.Fatalf("Scan with inherited repository location: %v", err)
+	}
+	if !reflect.DeepEqual(pathsOf(got.Files), pathsOf(clean.Files)) {
+		t.Fatalf("Files=%v want clean environment %v", pathsOf(got.Files), pathsOf(clean.Files))
+	}
+}
+
 // The ignored-path lookup runs every turn, often next to a git command the user or agent
 // is running in the same repository. It must not take the optional index lock, and a
 // GIT_OPTIONAL_LOCKS value inherited from the environment must not re-enable it.
