@@ -492,42 +492,61 @@ func TestRunSandboxPolicyJSONGoldenIncludesManagerBaselineFields(t *testing.T) {
 	assertSandboxPolicyJSONGolden(t, "")
 }
 
-// TestRunSandboxPolicyJSONGoldenNestedTempDir runs the same golden with a temp
-// directory that sits inside another one.
-//
-// NewScope drops a root covered by an earlier one. The policy JSON is built
-// with a nil scope, so it still lists every candidate, and the golden
-// normalizer only removes what NewScope reports. A TMPDIR inside /tmp (or a
-// TMP inside TEMP) therefore survives normalization. This test pins the
-// variables the snapshot reads: on Unix TMPDIR is the inner directory, and
-// only when that directory is not inside the hard-coded /tmp, so NewScope
-// keeps both roots and the normalizer strips both; on Windows TEMP and TMP
-// name the same outer directory, because pointing TMP at the inner one is
-// the leak. The inner path must not remain in the normalized JSON.
+// TestRunSandboxPolicyJSONGoldenNestedTempDir stages the temp-dir shape from
+// #1121 and then pins over it. On Unix that shape is a TMPDIR inside /tmp; on
+// Windows it is TMP inside TEMP. NewScope drops the inner root, the policy
+// JSON still lists it, and the golden normalizer leaves it behind. The pin
+// replaces those variables before the snapshot, so the golden matches and the
+// nested path does not survive. The directories come from t.TempDir, never
+// from the package working directory, so a checkout under /tmp is not special.
 func TestRunSandboxPolicyJSONGoldenNestedTempDir(t *testing.T) {
-	outer := sandboxGoldenTempDirOutside(t, ".")
-	inner := filepath.Join(outer, "inner")
-	if err := os.MkdirAll(inner, 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q): %v", inner, err)
+	nested := stageNestedSandboxTempEnv(t)
+	pinSandboxPolicyGoldenTempEnv(t)
+	normalized := assertSandboxPolicyJSONGolden(t, "")
+	if strings.Contains(normalized, nested) || strings.Contains(normalized, filepath.ToSlash(nested)) {
+		t.Fatalf("normalized policy leaked nested temp root %q:\n%s", nested, normalized)
 	}
-	pinned := outer
-	switch runtime.GOOS {
-	case "windows":
+}
+
+// stageNestedSandboxTempEnv installs the leaking temp-dir shape and returns
+// the inner path. The caller pins afterward. Skip, rather than fail, when
+// that shape cannot be built.
+func stageNestedSandboxTempEnv(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		outer := t.TempDir()
+		inner := filepath.Join(outer, "inner")
+		if err := os.MkdirAll(inner, 0o755); err != nil {
+			t.Skipf("create nested TEMP/TMP: %v", err)
+		}
 		t.Setenv("TEMP", outer)
-		t.Setenv("TMP", outer)
-	default:
-		if sandboxPathInside("/tmp", inner) {
-			t.Fatalf("nested TMPDIR %q sits inside /tmp; NewScope would drop it and the golden would mismatch", inner)
-		}
-		t.Setenv("TMPDIR", inner)
-		pinned = inner
+		t.Setenv("TMP", inner)
+		return inner
 	}
-	normalized := assertSandboxPolicyJSONGolden(t, pinned)
-	for _, leaked := range []string{outer, inner} {
-		if strings.Contains(normalized, leaked) || strings.Contains(normalized, filepath.ToSlash(leaked)) {
-			t.Fatalf("normalized policy leaked temp root %q:\n%s", leaked, normalized)
-		}
+	resolvedTmp, err := filepath.EvalSymlinks("/tmp")
+	if err != nil {
+		t.Skipf("resolve /tmp: %v", err)
 	}
+	info, err := os.Stat(resolvedTmp)
+	if err != nil || !info.IsDir() {
+		t.Skip("/tmp is not a directory; cannot stage a nested TMPDIR")
+	}
+	// t.TempDir is a child of os.TempDir(). A further child is the ambient
+	// case: TMPDIR inside the hard-coded /tmp candidate.
+	nested := filepath.Join(t.TempDir(), "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Skipf("create nested TMPDIR: %v", err)
+	}
+	resolvedNested, err := filepath.EvalSymlinks(nested)
+	if err != nil {
+		t.Skipf("resolve nested TMPDIR: %v", err)
+	}
+	rel, err := filepath.Rel(resolvedTmp, resolvedNested)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		t.Skipf("temp dir %q is not inside /tmp; cannot stage the nested TMPDIR case", resolvedNested)
+	}
+	t.Setenv("TMPDIR", resolvedNested)
+	return resolvedNested
 }
 
 // pinSandboxPolicyGoldenTempEnv fixes the temp variables
@@ -544,40 +563,6 @@ func pinSandboxPolicyGoldenTempEnv(t *testing.T) {
 		return
 	}
 	t.Setenv("TMPDIR", "")
-}
-
-func sandboxGoldenTempDirOutside(t *testing.T, parent string) string {
-	t.Helper()
-	dir, err := os.MkdirTemp(parent, ".zero-sandbox-golden-")
-	if err != nil {
-		t.Fatalf("MkdirTemp(%q): %v", parent, err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		t.Fatalf("Abs(%q): %v", dir, err)
-	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		t.Fatalf("EvalSymlinks(%q): %v", abs, err)
-	}
-	return resolved
-}
-
-func sandboxPathInside(parent string, child string) bool {
-	resolvedParent := parent
-	if resolved, err := filepath.EvalSymlinks(parent); err == nil {
-		resolvedParent = resolved
-	}
-	resolvedChild := child
-	if resolved, err := filepath.EvalSymlinks(child); err == nil {
-		resolvedChild = resolved
-	}
-	relative, err := filepath.Rel(resolvedParent, resolvedChild)
-	if err != nil {
-		return false
-	}
-	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative))
 }
 
 func assertSandboxPolicyJSONGolden(t *testing.T, mustList string) string {
