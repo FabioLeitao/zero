@@ -40,6 +40,11 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cursor
 
 /zero
+/zero-linux-sandbox.prev
+/zero-linux.prev
+/zero.prev
+/zero-patched
+/zero-patched.prev
 /zero.exe
 /zero-windows-command-runner.exe
 /zero-windows-sandbox-setup.exe
