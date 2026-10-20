@@ -702,7 +702,7 @@ func (a *Agent) handleSetMode(_ context.Context, params json.RawMessage) (any, e
 	defer sess.turnMu.Unlock()
 	mode := agent.PermissionMode(p.ModeID)
 	switch mode {
-	case agent.PermissionModeAuto, agent.PermissionModeAsk, agent.PermissionModePlan:
+	case agent.PermissionModeAuto, agent.PermissionModeAsk, agent.PermissionModePlan, agent.PermissionModeSpecDraft:
 		if err := a.updateMode(sess, mode); err != nil {
 			return nil, err
 		}
@@ -740,7 +740,7 @@ func (a *Agent) handleSetConfigOption(_ context.Context, params json.RawMessage)
 		defer sess.turnMu.Unlock()
 		mode := agent.PermissionMode(p.Value)
 		switch mode {
-		case agent.PermissionModeAuto, agent.PermissionModeAsk, agent.PermissionModePlan:
+		case agent.PermissionModeAuto, agent.PermissionModeAsk, agent.PermissionModePlan, agent.PermissionModeSpecDraft:
 			if err := a.updateMode(sess, mode); err != nil {
 				return nil, err
 			}
@@ -837,6 +837,7 @@ func (a *Agent) modeState(s *acpSession) *SessionModeState {
 			{ID: string(agent.PermissionModeAuto), Name: "Auto", Description: "Run safe tools automatically; ask before risky ones."},
 			{ID: string(agent.PermissionModeAsk), Name: "Ask", Description: "Ask before every tool that changes state."},
 			{ID: string(agent.PermissionModePlan), Name: "Plan", Description: "Read-only planning; write and shell tools are hidden."},
+			{ID: string(agent.PermissionModeSpecDraft), Name: "Spec-Draft", Description: "Spec-draft planning; write and shell tools are hidden."},
 		},
 	}
 }
