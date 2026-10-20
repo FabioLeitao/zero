@@ -10,27 +10,27 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gitlawb/zero/internal/agent"
-	"github.com/Gitlawb/zero/internal/config"
-	"github.com/Gitlawb/zero/internal/errhint"
-	"github.com/Gitlawb/zero/internal/execprofile"
-	"github.com/Gitlawb/zero/internal/execution"
-	"github.com/Gitlawb/zero/internal/imageinput"
-	"github.com/Gitlawb/zero/internal/lsp"
-	"github.com/Gitlawb/zero/internal/modelregistry"
-	"github.com/Gitlawb/zero/internal/notify"
-	"github.com/Gitlawb/zero/internal/providercatalog"
-	"github.com/Gitlawb/zero/internal/providermodeldiscovery"
-	"github.com/Gitlawb/zero/internal/providers"
-	"github.com/Gitlawb/zero/internal/sandbox"
-	"github.com/Gitlawb/zero/internal/sessions"
-	"github.com/Gitlawb/zero/internal/specmode"
-	"github.com/Gitlawb/zero/internal/streamjson"
-	"github.com/Gitlawb/zero/internal/tools"
-	"github.com/Gitlawb/zero/internal/trace"
-	"github.com/Gitlawb/zero/internal/usage"
-	"github.com/Gitlawb/zero/internal/worktrees"
-	"github.com/Gitlawb/zero/internal/zeroruntime"
+	"github.com/Twigpine/zero/internal/agent"
+	"github.com/Twigpine/zero/internal/config"
+	"github.com/Twigpine/zero/internal/errhint"
+	"github.com/Twigpine/zero/internal/execprofile"
+	"github.com/Twigpine/zero/internal/execution"
+	"github.com/Twigpine/zero/internal/imageinput"
+	"github.com/Twigpine/zero/internal/lsp"
+	"github.com/Twigpine/zero/internal/modelregistry"
+	"github.com/Twigpine/zero/internal/notify"
+	"github.com/Twigpine/zero/internal/providercatalog"
+	"github.com/Twigpine/zero/internal/providermodeldiscovery"
+	"github.com/Twigpine/zero/internal/providers"
+	"github.com/Twigpine/zero/internal/sandbox"
+	"github.com/Twigpine/zero/internal/sessions"
+	"github.com/Twigpine/zero/internal/specmode"
+	"github.com/Twigpine/zero/internal/streamjson"
+	"github.com/Twigpine/zero/internal/tools"
+	"github.com/Twigpine/zero/internal/trace"
+	"github.com/Twigpine/zero/internal/usage"
+	"github.com/Twigpine/zero/internal/worktrees"
+	"github.com/Twigpine/zero/internal/zeroruntime"
 )
 
 const (
@@ -434,6 +434,8 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		}
 		images = nil
 	}
+	// Match the TUI: only images actually sent to the model enter history.
+	attachments := sessions.MessageAttachments{Images: len(images)}
 	runReasoningEffort := options.reasoningEffort
 	if options.useSpec && options.specReasoningEffort != "" {
 		runReasoningEffort = options.specReasoningEffort
@@ -614,10 +616,14 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	sessionRecorder := execSessionRecorder{prepared: preparedSession}
 	// Surface a best-effort session-recording failure once, on every exit path.
 	defer sessionRecorder.warnIfRecordingFailed(stderr)
-	sessionRecorder.append(sessions.EventMessage, map[string]any{
+	userPayload := map[string]any{
 		"role":    "user",
 		"content": prompt,
-	})
+	}
+	if attachments.Images > 0 {
+		userPayload["attachments"] = attachments
+	}
+	sessionRecorder.append(sessions.EventMessage, userPayload)
 
 	// OnAskUser is intentionally left unset: headless runs have no interactive
 	// user, so ask_user degrades to a "proceed with your best assumption" result
