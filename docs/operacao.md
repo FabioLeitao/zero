@@ -1,0 +1,36 @@
+# Modo de operação
+Modo: supervisionado
+Desde: 2026-11-16
+Decidido por: operador (via Owl)
+Paradas adiadas: nenhuma
+Dev externo: todas as tarefas de código (Go). A 2.1 vai para o Cursor (eventual: justificativa no plano); reserva: OpenCode
+Segurança: modo=ativo
+Proteção do main: pendente (aplicar quando o CI rodar verde no main depois do merge do sync da tarefa 1.1)
+
+## Regras do repo que valem sobre o fluxo (decididas pelo operador)
+- **Só o operador mescla,** sempre com `gh pr merge <n> --merge` (nunca squash, `--admin` ou force-push). O PM nunca faz commit no `main`: tudo vai em branch + PR.
+- **Regra do upstream.** `origin` = `FabioLeitao/zero` (fork). `upstream` = `Twigpine/zero` (terceiros): só leitura, push do remote desativado. **Nada é escrito no upstream** (PR, issue, comentário, review) **sem o "vai" explícito do operador**, e então com `--repo Twigpine/zero` por extenso. **Todo `gh` de escrita leva `--repo FabioLeitao/zero`** (`pr create/review/comment/merge`, `issue create/comment/edit/close`, `label`), inclusive nas chamadas aos subagentes. Incidente de origem: FabioLeitao/projectAgents#14.
+- **Segurança sempre ativa.** A linha `Segurança: modo=ativo` é a segunda chave (a primeira é o hook `gatilho-seguranca` do operador). A cada SHA entregue, o `cyber-senior` roda antes do `revisor-senior`, com o texto fixo do PA e `--repo FabioLeitao/zero`. Ele é recomendatório: o veredito é do revisor e do operador. Não voltar a `dryrun` e não pular a etapa; se falhar, registrar o evento e avisar o operador. Ordem do operador de 2026-11-15: o `cyber-senior` **publica de verdade** (um comentário por SHA no PR e o evento `seguranca-revisada` na issue de registro), com `KP_REVIEW_LADDER_ALLOW_EXTERNAL=0`, sempre com `--repo FabioLeitao/zero` por extenso e nunca em repo de terceiros (`Twigpine/zero`) sem "vai" explícito do operador naquele caso. O comentário é recomendatório e nunca decide o merge.
+- **Padrão e espera (aviso do operador, 2026-11-15).** Com o `coordenar-fluxo` novo, a segurança é ativa por padrão; a linha `Segurança:` fica como documentação e como opt-out (`modo=desligado` ou `dryrun`, lido do `origin/main`). **Enquanto o operador não avisar "KP ok" (o `kp-review-phased` do PATH está quebrado), o `cyber-senior` não é chamado.** Se algum fluxo o chamar antes, registrar o evento e avisar o operador.
+- **KP serializado.** Um `kp-review-phased` por vez no T14 (GPU local). Antes de rodar, avisar o kp-pm/boar-pm se houver `check-all` ou medição em curso. Enquanto a janela de medição do T14 não acabar (segunda, 2026-11-16), não rodar o KP deste repo: avisar o operador e esperar.
+- **Commits e PRs:** assinados (SSH); sem trailer `Co-Authored-By`, `Claude-Session` nem "Generated with Claude Code" (regra do operador de 05/ago e 11/nov/2026); sem squash, `reset --hard` ou `--force`. Código e commits em inglês.
+- **Granularidade:** um PR por épico, nunca rascunho (nem em PR, nem em issue). Só abre pronto, com o gate local em saída 0 (ou 3, só por exceção conhecida registrada abaixo) no SHA exato e com o "vai" do operador.
+- `Fixes #N` (um por linha) só quando o PR realmente fecha a issue; senão `Refs #N`. Nunca `Closes` na issue `[registro] Eventos do projeto`.
+- Sem segredo em arquivo, commit ou log.
+
+## Gate local (wrapper fora do repo: `~/.local/bin/zero-gate`)
+É o AGENTS.md §3 mais os checks do CI, no SHA exato (a árvore rastreada tem de estar limpa), sem pular nem afrouxar nenhum passo, na ordem: `make fmt-check`, `go vet ./...`, `make test` (com race), `go test ./...`, `go run ./cmd/zero-release build`, `go run ./cmd/zero-release smoke`, `make lint-static`, `make vulncheck`, `make vulncheck-windows`, `git diff HEAD --check`.
+- **Roda com `umask 0022` e `TZ=UTC`, dentro do próprio script, em ambiente de runner** (`HOME`, `TMPDIR` e `PATH` limpos em `/var/tmp`, sem o helper `zero-linux-sandbox` do `PATH`). Nada do ambiente do operador é alterado. Motivos medidos em 2026-11-16: `$HOME` é um repositório git (os testes de `internal/memory` recusam um `TMPDIR` dentro de repo); `TestBashToolRunsWithHostSandboxBackendWhenAvailable` cria um `.git` no `TMPDIR` quando o helper de sandbox está no `PATH`; `~/.config/zero/hooks.json` do operador soma um hook ao teste de `internal/cli`; o runner do CI roda em UTC.
+- **Saída 0** = tudo passou. **Saída 3** = a única falha é a exceção conhecida abaixo. **Saída 1** = qualquer outra falha. O PR copia a linha `ZERO_GATE_EXIT=<n> SHA=<sha>` e diz qual exceção houve. Saída 3 nunca é apresentada como 0.
+- **Exceção conhecida: nenhuma no momento.** O `TestRelativeAgeFormatsLastActivity` falha só em fuso a oeste de UTC (o teste monta a data em UTC e `relativeAge` formata em `.Local()`); com `TZ=UTC`, como no CI, passa. Issue aberta no upstream, com ordem explícita do operador (2026-11-16): Twigpine/zero#1229. Se uma exceção voltar a existir, entra em `~/.config/zero-gate/known-failures.txt` com a prova no `upstream/main` puro.
+- **`lint-static`:** falha também no `upstream/main` puro (5 achados staticcheck em 2026-11-16, todos do upstream); no `main` do fork há mais 2, nos testes do `acphard`. Aguarda a decisão do operador (baseline com saída 3, ou outra).
+- CI vermelho no GitHub: ler o log e classificar (código ou infra do runner). Proibido `continue-on-error`, `|| true`, skip ou retry cego.
+
+## Dev externo (decisão do operador, 2026-11-16)
+- O `backend-dev-senior` do PA é Python + Docker e o zero é Go: **não se chama o dev como subagente** neste repo. Toda tarefa de código leva `dev-externo` e a nota de passagem.
+- **2.1 → Cursor.** Justificativa: a tarefa é pequena e sensível (sanitizar texto não confiável vindo de um gateway) e o operador tem franquia no Cursor. **Reserva: OpenCode**, se a franquia acabar.
+- O Cursor não roda a skill `implementar-tarefa`, então **a nota de passagem leva também o fluxo do dev** (TDD com o commit `test:` antes, commits assinados e sem trailer de ferramenta, um PR, `--repo FabioLeitao/zero`, o gate) além dos 6 itens do PA.
+- O revisor nunca roda na sessão do dev externo.
+
+## Versões
+Não há builder, deployer nem documentador neste repo. O binário é gerado por `~/.local/bin/zero-databoar-build`, que falha (exit 6) se um rótulo de patch já foi absorvido pelo upstream: nesse caso, remover o rótulo de `~/.config/zero-databoar/patch-labels.tsv`.
