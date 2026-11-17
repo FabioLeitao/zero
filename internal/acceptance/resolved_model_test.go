@@ -2,14 +2,19 @@ package acceptance
 
 // Acceptance tests of task 2.1: the provider_usage event of a session records
 // the model that really answered (resolvedModel), cleaned and only when it
-// differs from the requested one. Spec: docs/desenho/2.1.md, A2.1-1 to A2.1-12.
+// differs from the requested one. Spec: docs/desenho/2.1.md, A2.1-1 to A2.1-15.
 //
-// Tests that need the feature are wrapped in pending(t, "2.1", ...). A2.1-9 and
-// A2.1-11 guard behavior that already exists and are not pending.
+// Tests that fail on the base of the fork are wrapped in pending(t, "2.1", ...).
+// A2.1-1, A2.1-9 and A2.1-10 are not pending: the fork base already records a
+// raw resolvedModel, so they pass there (they fail on a bare upstream/main
+// until the recording commits land). A2.1-11 and A2.1-13 to A2.1-15 need the
+// report display commit (R10) and are pending.
 
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -210,15 +215,13 @@ var (
 // --- A2.1-1 ---------------------------------------------------------------
 
 func TestA2_1_1_ResolvedModelRecordedWithTokens(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		s := newSandbox(t)
-		ev := chatUsage(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true, prompt: 123, completion: 45})
-		expectf(t, ev.str(t, "resolvedModel") == "deepseek/deepseek-r1:free",
-			"resolvedModel = %q, want %q (payload %v)", ev.str(t, "resolvedModel"), "deepseek/deepseek-r1:free", ev.raw())
-		expectf(t, ev.num(t, "promptTokens") == 123, "promptTokens = %d, want 123", ev.num(t, "promptTokens"))
-		expectf(t, ev.num(t, "completionTokens") == 45, "completionTokens = %d, want 45", ev.num(t, "completionTokens"))
-		expectf(t, ev.num(t, "totalTokens") == 168, "totalTokens = %d, want 168", ev.num(t, "totalTokens"))
-	})
+	s := newSandbox(t)
+	ev := chatUsage(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true, prompt: 123, completion: 45})
+	expectf(t, ev.str(t, "resolvedModel") == "deepseek/deepseek-r1:free",
+		"resolvedModel = %q, want %q (payload %v)", ev.str(t, "resolvedModel"), "deepseek/deepseek-r1:free", ev.raw())
+	expectf(t, ev.num(t, "promptTokens") == 123, "promptTokens = %d, want 123", ev.num(t, "promptTokens"))
+	expectf(t, ev.num(t, "completionTokens") == 45, "completionTokens = %d, want 45", ev.num(t, "completionTokens"))
+	expectf(t, ev.num(t, "totalTokens") == 168, "totalTokens = %d, want 168", ev.num(t, "totalTokens"))
 }
 
 // --- A2.1-2 ---------------------------------------------------------------
@@ -372,48 +375,130 @@ func (s *sandbox) reportJSON(id string) usageTotal {
 }
 
 func TestA2_1_10_PriceAndTokensUnchanged(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		s := newSandbox(t)
-		// gpt-4o has a price in the embedded registry.
-		withID, r1, _ := execChat(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true, requested: "gpt-4o", prompt: 1000, completion: 500})
-		plainID, r2, _ := execChat(t, s, chatRun{requested: "gpt-4o", prompt: 1000, completion: 500})
-		if r1.Code != 0 || r2.Code != 0 {
-			setupFatal(t, "zero exec failed: %d %d", r1.Code, r2.Code)
+	s := newSandbox(t)
+	// gpt-4o has a price in the embedded registry.
+	withID, r1, _ := execChat(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true, requested: "gpt-4o", prompt: 1000, completion: 500})
+	plainID, r2, _ := execChat(t, s, chatRun{requested: "gpt-4o", prompt: 1000, completion: 500})
+	if r1.Code != 0 || r2.Code != 0 {
+		setupFatal(t, "zero exec failed: %d %d", r1.Code, r2.Code)
+	}
+	withEv, plainEv := s.onlyUsage(withID), s.onlyUsage(plainID)
+	expectf(t, withEv.has("resolvedModel"), "precondition: the session with a reported model must record resolvedModel: %v", withEv.raw())
+	expectf(t, !withEv.has("model") && !plainEv.has("model"), "payload has a model key (no escalation here): %v / %v", withEv.raw(), plainEv.raw())
+	with, plain := s.reportJSON(withID), s.reportJSON(plainID)
+	expectf(t, plain.TotalCost > 0, "precondition: gpt-4o must be priced, got cost %v", plain.TotalCost)
+	expectf(t, with == plain, "usage report differs: with resolvedModel %+v, without %+v", with, plain)
+	expectf(t, with.InputTokens == 1000 && with.OutputTokens == 500 && with.TotalTokens == 1500, "tokens: %+v", with)
+}
+
+// --- A2.1-11 (R10) ---------------------------------------------------------
+
+const reportBlockHeader = "resolved models (reported by provider; cost uses the requested model)"
+
+type resolvedEntry struct {
+	RequestedModel string `json:"requestedModel"`
+	ResolvedModel  string `json:"resolvedModel"`
+	Requests       int    `json:"requests"`
+	TotalTokens    int    `json:"totalTokens"`
+}
+
+type fullReport struct {
+	Total          usageTotal      `json:"total"`
+	ResolvedModels []resolvedEntry `json:"resolvedModels"`
+	keys           map[string]json.RawMessage
+}
+
+// reports runs `zero usage report` in text and in --json form with args
+// appended (for example --session <id>) and returns both outputs.
+func (s *sandbox) reports(args ...string) (string, fullReport, string, int) {
+	s.t.Helper()
+	txt := s.zero(append([]string{"usage", "report"}, args...)...)
+	js := s.zero(append([]string{"usage", "report", "--json"}, args...)...)
+	var rep fullReport
+	if err := json.Unmarshal([]byte(js.Stdout), &rep); err != nil {
+		setupFatal(s.t, "usage report --json is not JSON: %v\n%s", err, js.Stdout)
+	}
+	if err := json.Unmarshal([]byte(js.Stdout), &rep.keys); err != nil {
+		setupFatal(s.t, "usage report --json is not an object: %v", err)
+	}
+	code := txt.Code
+	if js.Code != 0 {
+		code = js.Code
+	}
+	return txt.Stdout, rep, js.Stdout, code
+}
+
+// textBlock returns the lines of the "resolved models" block of the text
+// report (after its header, up to the blank line) and whether the header was
+// found after the "total" line.
+func textBlock(text string) ([]string, bool) {
+	lines := strings.Split(text, "\n")
+	total, header := -1, -1
+	for i, l := range lines {
+		if strings.HasPrefix(l, "total") && total < 0 {
+			total = i
 		}
-		withEv, plainEv := s.onlyUsage(withID), s.onlyUsage(plainID)
-		expectf(t, withEv.has("resolvedModel"), "precondition: the session with a reported model must record resolvedModel: %v", withEv.raw())
-		expectf(t, !withEv.has("model") && !plainEv.has("model"), "payload has a model key (no escalation here): %v / %v", withEv.raw(), plainEv.raw())
-		with, plain := s.reportJSON(withID), s.reportJSON(plainID)
-		expectf(t, plain.TotalCost > 0, "precondition: gpt-4o must be priced, got cost %v", plain.TotalCost)
-		expectf(t, with == plain, "usage report differs: with resolvedModel %+v, without %+v", with, plain)
-		expectf(t, with.InputTokens == 1000 && with.OutputTokens == 500 && with.TotalTokens == 1500, "tokens: %+v", with)
+		if l == reportBlockHeader {
+			header = i
+		}
+	}
+	if header < 0 {
+		return nil, false
+	}
+	var block []string
+	for _, l := range lines[header+1:] {
+		if strings.TrimSpace(l) == "" {
+			break
+		}
+		block = append(block, l)
+	}
+	return block, total >= 0 && header > total
+}
+
+// expectOneAttribution asserts the report of one session shows exactly one
+// attribution gpt-test -> want, with the tokens of the fake server (18).
+func expectOneAttribution(t *testing.T, text string, rep fullReport, jsonOut, want string) {
+	t.Helper()
+	block, afterTotal := textBlock(text)
+	expectf(t, afterTotal, "text report lacks the %q block after the total line:\n%s", reportBlockHeader, text)
+	wantLine := "  requests 1, tokens 18: gpt-test -> " + want
+	expectf(t, len(block) == 1 && block[0] == wantLine, "text block = %q, want [%q]", block, wantLine)
+	wantJSON := []resolvedEntry{{RequestedModel: requestedModel, ResolvedModel: want, Requests: 1, TotalTokens: 18}}
+	expectf(t, reflect.DeepEqual(rep.ResolvedModels, wantJSON), "resolvedModels = %+v, want %+v", rep.ResolvedModels, wantJSON)
+	banned := append(append([]rune{}, controlRunes...), formatRunes...)
+	assertCleanLine(t, strings.ReplaceAll(text, "\n", ""), banned)
+	assertCleanLine(t, strings.ReplaceAll(jsonOut, "\n", ""), banned)
+}
+
+func TestA2_1_11_UsageReportShowsCleanResolvedModel(t *testing.T) {
+	pending(t, "2.1", func(t *testing.T) {
+		cases := []struct{ name, literal, want, rawValue string }{
+			{"control-escaped", escapedLiteral(evilControl), "[31mevil[0m]0;title-x", evilControl},
+			{"format-escaped", escapedLiteral(evilFormat), "evil-xy", evilFormat},
+			{"format-raw-utf8", rawLiteral(evilFormat), "evil-xy", evilFormat},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				s := newSandbox(t)
+				id := chatSession(t, s, chatRun{literal: c.literal})
+				text, rep, js, code := s.reports("--session", id)
+				expectf(t, code == 0, "usage report exited %d", code)
+				expectOneAttribution(t, text, rep, js, c.want)
+				expectf(t, !strings.Contains(text, c.rawValue) && !strings.Contains(js, c.rawValue), "the raw reported value reached the report")
+			})
+		}
 	})
 }
 
-// --- A2.1-11 (guard, not pending) ------------------------------------------
-
-func TestA2_1_11_UsageReportStaysClean(t *testing.T) {
-	s := newSandbox(t)
-	var ids []string
-	for _, lit := range []string{escapedLiteral(evilControl), escapedLiteral(evilFormat), rawLiteral(evilFormat)} {
-		id, r, _ := execChat(t, s, chatRun{literal: lit})
-		if r.Code != 0 {
-			setupFatal(t, "zero exec exited %d: %s", r.Code, r.Stderr)
-		}
-		ids = append(ids, id)
+// chatSession runs a chat session and returns its id, failing the setup when
+// zero exec fails.
+func chatSession(t *testing.T, s *sandbox, c chatRun) string {
+	t.Helper()
+	id, r, _ := execChat(t, s, c)
+	if r.Code != 0 {
+		setupFatal(t, "zero exec exited %d\nstderr: %s", r.Code, r.Stderr)
 	}
-	banned := append(append([]rune{}, controlRunes...), formatRunes...)
-	for _, id := range ids {
-		for _, args := range [][]string{{"usage", "report", "--session", id}, {"usage", "report", "--json", "--session", id}} {
-			r := s.zero(args...)
-			if r.Code != 0 {
-				setupFatal(t, "%v exited %d: %s", args, r.Code, r.Stderr)
-			}
-			out := strings.ReplaceAll(r.Stdout, "\n", "")
-			assertCleanLine(t, out, banned)
-			expectf(t, !strings.Contains(out, "evil"), "%v shows the reported model: %q", args, out)
-		}
-	}
+	return id
 }
 
 // --- A2.1-12 ---------------------------------------------------------------
@@ -424,5 +509,158 @@ func TestA2_1_12_OnlyRemovableCharactersLeaveNothing(t *testing.T) {
 		ev := chatUsage(t, s, chatRun{literal: escapedLiteral("\x1b\x00\u200b"), everyChunk: true})
 		expectf(t, !ev.has("resolvedModel"), "resolvedModel recorded for a value made only of removable characters: %q", ev.str(t, "resolvedModel"))
 		requireFeature(t, s)
+	})
+}
+
+// requireReportFeature runs a control session whose reported model differs from
+// the requested one and asserts that the report shows it, so that the "nothing
+// to show" tests cannot pass just because the report has no such block.
+func requireReportFeature(t *testing.T, s *sandbox) {
+	t.Helper()
+	id := chatSession(t, s, chatRun{literal: `"deepseek/control-model"`, everyChunk: true})
+	_, rep, _, _ := s.reports("--session", id)
+	expectf(t, len(rep.ResolvedModels) == 1 && rep.ResolvedModels[0].ResolvedModel == "deepseek/control-model",
+		"control: the report must show a reported model different from the requested one, resolvedModels = %+v", rep.ResolvedModels)
+}
+
+// expectNothingShown asserts the report of a session has no attribution block.
+func expectNothingShown(t *testing.T, s *sandbox, label, id string) {
+	t.Helper()
+	text, rep, _, code := s.reports("--session", id)
+	expectf(t, code == 0, "%s: usage report exited %d", label, code)
+	expectf(t, !strings.Contains(text, "resolved models") && !strings.Contains(text, " -> "), "%s: text report shows an attribution:\n%s", label, text)
+	_, has := rep.keys["resolvedModels"]
+	expectf(t, !has, "%s: JSON report has a resolvedModels key: %s", label, rep.keys["resolvedModels"])
+}
+
+// --- A2.1-13 (R10) ---------------------------------------------------------
+
+func TestA2_1_13_NothingToShow(t *testing.T) {
+	pending(t, "2.1", func(t *testing.T) {
+		s := newSandbox(t)
+		equal := chatSession(t, s, chatRun{literal: `"` + requestedModel + `"`, everyChunk: true})
+		absent := chatSession(t, s, chatRun{})
+		removable := chatSession(t, s, chatRun{literal: escapedLiteral("\x1b\x00\u200b"), everyChunk: true})
+		expectNothingShown(t, s, "equal to requested", equal)
+		expectNothingShown(t, s, "no model", absent)
+		expectNothingShown(t, s, "only removable characters", removable)
+		requireReportFeature(t, s)
+	})
+}
+
+// --- A2.1-14 (R10) ---------------------------------------------------------
+
+// rewriteResolvedModel edits the stored provider_usage event of a session the
+// way an older build would have written it. The literal is a JSON string
+// literal, or "" to drop the key.
+func (s *sandbox) rewriteResolvedModel(id, literal string) {
+	s.t.Helper()
+	path := filepath.Join(s.Data, "zero", "sessions", id, "events.jsonl")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		setupFatal(s.t, "read events: %v", err)
+	}
+	var out []string
+	edited := false
+	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
+		var env map[string]json.RawMessage
+		if json.Unmarshal([]byte(line), &env) == nil && string(env["type"]) == `"provider_usage"` {
+			var payload map[string]json.RawMessage
+			if err := json.Unmarshal(env["payload"], &payload); err != nil {
+				setupFatal(s.t, "payload: %v", err)
+			}
+			payload["resolvedModel"] = json.RawMessage(literal)
+			pb, _ := json.Marshal(payload)
+			env["payload"] = pb
+			lb, _ := json.Marshal(env)
+			line, edited = string(lb), true
+		}
+		out = append(out, line)
+	}
+	if !edited {
+		setupFatal(s.t, "no provider_usage event to edit")
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(out, "\n")+"\n"), 0o600); err != nil {
+		setupFatal(s.t, "write events: %v", err)
+	}
+	// Premise: the session store accepts the edited file.
+	if _, rep, _, code := s.reports("--session", id); code != 0 || rep.Total.Requests != 1 {
+		setupFatal(s.t, "premise failed: the store does not accept the edited events.jsonl (exit %d, requests %d)", code, rep.Total.Requests)
+	}
+}
+
+func TestA2_1_14_CleansOldSessionsOnRead(t *testing.T) {
+	pending(t, "2.1", func(t *testing.T) {
+		const oldStyle = "\x1b[31mold\u0085\u202e-x"
+		t.Run("a-escaped", func(t *testing.T) {
+			s := newSandbox(t)
+			id := chatSession(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true})
+			s.rewriteResolvedModel(id, escapedLiteral(oldStyle))
+			text, rep, js, _ := s.reports("--session", id)
+			expectOneAttribution(t, text, rep, js, "[31mold-x")
+		})
+		t.Run("a-raw-utf8", func(t *testing.T) {
+			s := newSandbox(t)
+			id := chatSession(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true})
+			s.rewriteResolvedModel(id, rawLiteral(oldStyle))
+			text, rep, js, _ := s.reports("--session", id)
+			expectOneAttribution(t, text, rep, js, "[31mold-x")
+		})
+		t.Run("b-oversized", func(t *testing.T) {
+			s := newSandbox(t)
+			id := chatSession(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true})
+			sent := strings.Repeat("\u6a21", 100_000)
+			s.rewriteResolvedModel(id, rawLiteral(sent))
+			text, rep, _, code := s.reports("--session", id)
+			expectf(t, code == 0, "usage report exited %d", code)
+			if expectf(t, len(rep.ResolvedModels) == 1, "resolvedModels = %+v, want one entry", rep.ResolvedModels) {
+				got := rep.ResolvedModels[0].ResolvedModel
+				expectf(t, len(got) == 255 && utf8.ValidString(got) && strings.HasPrefix(sent, got), "JSON value has %d bytes (valid %v), want 255 bytes, a prefix of the stored value", len(got), utf8.ValidString(got))
+				block, _ := textBlock(text)
+				expectf(t, len(block) == 1 && strings.HasSuffix(block[0], " -> "+got), "text block does not show the capped value: %d line(s)", len(block))
+			}
+		})
+		t.Run("c-equal-after-cleaning", func(t *testing.T) {
+			s := newSandbox(t)
+			for name, lit := range map[string]string{"nul": escapedLiteral("gpt-\x00test"), "same": `"gpt-test"`} {
+				id := chatSession(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true})
+				s.rewriteResolvedModel(id, lit)
+				expectNothingShown(t, s, name, id)
+			}
+			requireReportFeature(t, s)
+		})
+	})
+}
+
+// --- A2.1-15 (R10) ---------------------------------------------------------
+
+func TestA2_1_15_MixedLinesAndOrder(t *testing.T) {
+	pending(t, "2.1", func(t *testing.T) {
+		s := newSandbox(t)
+		for _, lit := range []string{`"deepseek/deepseek-r1:free"`, `"x/y"`, "", `"deepseek/deepseek-r1:free"`} {
+			chatSession(t, s, chatRun{literal: lit, everyChunk: true})
+		}
+		text, rep, _, code := s.reports()
+		expectf(t, code == 0, "usage report exited %d", code)
+		expectf(t, rep.Total.Requests == 4, "total.requests = %d, want 4", rep.Total.Requests)
+		want := []resolvedEntry{
+			{RequestedModel: requestedModel, ResolvedModel: "deepseek/deepseek-r1:free", Requests: 2, TotalTokens: 36},
+			{RequestedModel: requestedModel, ResolvedModel: "x/y", Requests: 1, TotalTokens: 18},
+		}
+		expectf(t, reflect.DeepEqual(rep.ResolvedModels, want), "resolvedModels = %+v, want %+v", rep.ResolvedModels, want)
+		block, afterTotal := textBlock(text)
+		expectf(t, afterTotal, "text report lacks the block after the total line:\n%s", text)
+		wantBlock := []string{
+			"  requests 2, tokens 36: gpt-test -> deepseek/deepseek-r1:free",
+			"  requests 1, tokens 18: gpt-test -> x/y",
+		}
+		expectf(t, reflect.DeepEqual(block, wantBlock), "text block = %q, want %q", block, wantBlock)
+		var header []string
+		for _, l := range strings.Split(text, "\n") {
+			if strings.HasPrefix(l, "date") {
+				header = strings.Fields(l)
+			}
+		}
+		expectf(t, reflect.DeepEqual(header, []string{"date", "requests", "tokens", "est.", "cost"}), "day table header = %q, want the one of today without a new column", header)
 	})
 }
