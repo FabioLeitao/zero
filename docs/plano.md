@@ -12,7 +12,7 @@ O `FabioLeitao/zero` é o fork do `Twigpine/zero` (Go) com patches próprios ain
 ## Fila de PRs (decidida antes de abrir a primeira)
 | PR | Onde | Conteúdo | Quando abre |
 |---|---|---|---|
-| 1 | fork | tarefa 1.1, o sync `sync/upstream-v0.13.0-20261115` para o `main` | agora |
+| 1 | fork | tarefa 1.1, o sync `sync/upstream-v0.13.0-20261115` para o `main` | mesclada em 2026-11-17 (#28, `da0630da`) |
 | 2 | fork | tarefa 1.2, `docs/operacao.md` e `docs/plano.md` | agora |
 | 3 | fork | tarefa 2.1, etapa de desenho (R10 incluído) e testes de aceitação (arquiteto, depois QA, no mesmo branch) | depois da 1 e da 2 mescladas |
 | 4 | fork | tarefa 2.1, implementação (dev externo), de um branch cortado do `upstream/main` | depois da 3 mesclada |
@@ -61,7 +61,7 @@ Cada teste dá o resultado esperado e o requisito que cobre. Regra do AGENTS.md:
 
 ## Exceções conhecidas do gate
 - **Nenhuma no momento.** O `TestRelativeAgeFormatsLastActivity` (`internal/tui`) não depende da data: depende do fuso. Com `TZ=UTC` (o runner do CI) passa; com `America/Sao_Paulo` (-03) falha com `session_test.go:1331: last year: sessionAge = "2025-05-31", want "2025-06-01"`, no `upstream/main` `5942518f` limpo (passa em `Asia/Kolkata` e `Pacific/Auckland`). O `zero-gate` roda com `TZ=UTC`. Issue no upstream: **Twigpine/zero#1229**, aberta em 2026-11-16 com ordem explícita do operador; sem PR até o label `issue-approved`.
-- **`lint-static`** (pendente de decisão do operador): 5 achados no `upstream/main` `5942518f` (`installtest/workflow_permissions_test.go:20`, `proxydial/proxydial.go:67` e `:72`, `update/update.go:512`, `tools/web_fetch.go:330`) e mais 2 no `main` do fork, nos testes do `acphard` (`acp/agent_test.go:2825`, `acp/jsonrpc_test.go:1230`). O CI do upstream trata o `lint-static` como advisory.
+- **`lint-static`** (baseline adotado no `zero-gate`; o operador mesclou o #28 com saída 3): 5 achados no `upstream/main` `5942518f` (`installtest/workflow_permissions_test.go:20`, `proxydial/proxydial.go:67` e `:72`, `update/update.go:512`, `tools/web_fetch.go:330`) e mais 2 no `main` do fork, nos testes do `acphard` (`acp/agent_test.go:2825`, `acp/jsonrpc_test.go:1230`). O CI do upstream trata o `lint-static` como advisory.
 - **Ambiente do T14 (já tratado no wrapper, sem afrouxar nada):** `$HOME` é repo git; o teste `TestBashToolRunsWithHostSandboxBackendWhenAvailable` deixa um `.git` no `TMPDIR` quando o helper de sandbox está no `PATH`; hook do operador em `~/.config/zero/hooks.json`.
 
 ## Versões
