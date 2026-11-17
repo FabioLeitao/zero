@@ -14,6 +14,7 @@ O `FabioLeitao/zero` é o fork do `Twigpine/zero` (Go) com patches próprios ain
 |---|---|---|---|
 | 1 | fork | tarefa 1.1, o sync `sync/upstream-v0.13.0-20261115` para o `main` | agora |
 | 2 | fork | tarefa 1.2, `docs/operacao.md` e `docs/plano.md` | agora |
+| 2b | fork | tarefa 1.4, o sync `sync/upstream-v0.14.0-20261117` (tag `v0.14.0`) para o `main` | aberta em paralelo à 2; o merge é do operador |
 | 3 | fork | tarefa 2.1, etapa de desenho (R10 incluído) e testes de aceitação (arquiteto, depois QA, no mesmo branch) | depois da 1 e da 2 mescladas |
 | 4 | fork | tarefa 2.1, implementação (dev externo), de um branch cortado do `upstream/main` | depois da 3 mesclada |
 | 5 | upstream | tarefa 2.2, o mesmo branch da 4, só com o "vai" do operador | nunca sozinho |
@@ -37,10 +38,14 @@ Por que 3 e 4 separadas: o fluxo exige o desenho e os testes mesclados antes de 
 - **1.1** *(gestão)* PR do sync para o `main` do fork. Branch `sync/upstream-v0.13.0-20261115`, merge `0342e638` (assinado), 33 commits sobre o `main` (`eb2aea17`, v0.11.0+13). Merge commit, `--repo FabioLeitao/zero`, merge do operador. Atende R1, R2, R8. Corpo do PR com: diff do `main`, o resultado do `zero-gate` e a exceção conhecida, o `go vet` e a versão do build (`0.13.0+up.9.ffd7bb21.databoar.0342e638.rmodel.sbxcompanion.acphard`). Depois do merge: aplicar a proteção do `main` (ver `docs/operacao.md`).
 - **1.2** *(gestão)* `docs/operacao.md` e `docs/plano.md`, em PR do fork. Atende R3, R8, R9.
 - **1.3** *(gestão, feita em 2026-11-16)* Wrapper `~/.local/bin/zero-gate` fora do repo e lista `~/.config/zero-gate/known-failures.txt`. Atende R8.
+- **1.4** *(gestão)* PR do sync da tag `v0.14.0` (merge `80db8d10`, 8 commits do upstream sobre o `ffd7bb21`) ao `main` do fork, pronta, merge commit, gate no SHA exato, corpo dizendo quais patches ficaram e quais saíram. Patches que ficaram: `rmodel`, `acphard`, `sbxcompanion`. Saíram por já estarem no upstream: sandbox degradado (#1082), `ZERO_RESPONSE_HEADER_TIMEOUT` (#1106), eventos de uso no ACP (#1137) e o `.gitignore` do workspaceindex. Atende R1, R2, R8.
+- **1.5** *(gestão)* Versão do build derivada do git (`zero-databoar-build`, nada fixo no código) e instalação no T14 em `~/.local/bin/zero` com backup datado e rollback pronto. Não trocar o binário enquanto houver revisão do `cyber-senior` ou do KP rodando; o pin do KP continua em 0.13.0 até o KP ser validado (`kp-doctor` e as suítes que dependem do `zero`). Depende da 1.4 mesclada.
+- **1.6** *(gestão)* O mesmo no latitude, host remoto: `ssh` visível na sessão tmux `latitude`, comandos colados e saída esperada, `sha256` do binário conferido nos dois lados, e aviso ao operador antes. Depende da 1.5.
 
 ### M2: Upstream #1148, o patch `rmodel` (milestone "M2 Upstream 1148")
 - **2.1** *(backend, `dev-externo`: Cursor)* `usage: record the provider-reported model on usage events when a router resolves an alias`. Reconferir a semântica do patch que já está no fork contra o `upstream/main` v0.13.0 (o upstream mexeu nos mesmos arquivos entre 0.12 e 0.13) e levá-lo ao que o mantenedor aprovou: R4 a R7, mais a exibição no relatório (R10, commit separado). Arquivos do rótulo `rmodel`: `internal/zeroruntime/{types,helpers}.go`, `internal/usage/report*.go`, `internal/providers/openai/*`. Desenho, testes de aceitação e implementação seguem o fluxo (PR 3, depois PR 4). Risco: **alto** (segurança, texto não confiável).
 - **2.2** *(gestão)* PR ao `Twigpine/zero`. Só com o "vai" explícito do operador, de um branch do fork cortado do `upstream/main`, com `--repo Twigpine/zero` por extenso, `Fixes #1148`, seguindo o CONTRIBUTING do upstream: issue com `issue-approved` (já tem), foco só no #1148, descrição do que mudou e por quê, testes e verificação, sem trabalho fora do escopo, poucos itens abertos de uma vez. Atende R3.
+- **2.3** *(gestão)* Inventário dos patches do fork sem trilha no upstream e rascunhos (um por item) em `docs/upstream/`, sem abrir nada. Não abrir nada novo no upstream enquanto a #1229 e a #1148 não andarem.
 
 **Dev externo da 2.1: Cursor, com justificativa por escrito.** O Cursor é eventual neste repo (só se crítico ou pedido pelo operador). Aqui o operador pediu: a tarefa é pequena e sensível, porque a falha seria deixar um valor controlado por um gateway chegar a um terminal; o operador tem franquia no Cursor. **Reserva: OpenCode**, se a franquia acabar. O `backend-dev-senior` do PA é Python + Docker, e o zero é Go.
 
