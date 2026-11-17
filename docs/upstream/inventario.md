@@ -13,3 +13,5 @@ Conferido em 2026-11-17 contra a tag `v0.14.0` e o `upstream/main` (leitura, nad
 | ~~workspaceindex respeita `.gitignore`~~ | Índice do workspace ignora o que o `.gitignore` ignora | Já está no upstream | Nenhum |
 
 Abertas por nós e ainda sem aprovação: issue #1229 (teste de fuso) e as Discussions #1119, #1141 e #1151. Nenhuma delas vira PR antes do `issue-approved`.
+
+Fora do sync de propósito (a avaliar depois): `8288ae81`, `feat(providers): default Twigpine OpenGateway to the auto smart-routing model (#1220)`, o único commit do `upstream/main` depois da tag `v0.14.0`. Muda o default de um provedor para o modelo `auto`; não entra sem decisão do operador.
