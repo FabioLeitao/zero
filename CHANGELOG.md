@@ -6,6 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once the first release is
 tagged. Until then, source builds report the version `dev`.
 
+## [0.13.0](https://github.com/Twigpine/zero/compare/v0.12.0...v0.13.0) (2026-11-09)
+
+
+### Features
+
+* **mcp:** add AI/ML API as an opt-in built-in server ([#1193](https://github.com/Twigpine/zero/issues/1193)) ([16ccd78](https://github.com/Twigpine/zero/commit/16ccd78765b6a2a56b7370e3031710d718aa4757))
+* **plugins:** add CLI enable/disable for plugin.json ([#1202](https://github.com/Twigpine/zero/issues/1202)) ([05c1b5e](https://github.com/Twigpine/zero/commit/05c1b5e16098e1c60212316d20ae8e055a27b5ae))
+* **providers:** point OpenGateway at api.twigpine.com and trust its live model list ([#1208](https://github.com/Twigpine/zero/issues/1208)) ([47f78c6](https://github.com/Twigpine/zero/commit/47f78c66247aa96c8753d6bb95e935126ff1761e))
+* **web-fetch:** add an opt-in AI/ML API Toolbox scraping backend ([#1192](https://github.com/Twigpine/zero/issues/1192)) ([c9f1794](https://github.com/Twigpine/zero/commit/c9f179482a7f6d7111ee64fa9cb8ffa2517c2397))
+* **web-search:** add AI/ML API Toolbox as an opt-in backend ([#1189](https://github.com/Twigpine/zero/issues/1189)) ([9873645](https://github.com/Twigpine/zero/commit/98736457bdac6b0272e032728a5485cf557780fe))
+
+
+### Bug Fixes
+
+* **hooks:** dispatch specialistStart/Stop lifecycle hooks ([#1204](https://github.com/Twigpine/zero/issues/1204)) ([2ca84cc](https://github.com/Twigpine/zero/commit/2ca84cc127d9369765004b72cf95049fecc6c28b))
+* **tui:** make reasoning stream rendering linear (coalesced deltas, O(1) append, tail-bounded preview) ([#1198](https://github.com/Twigpine/zero/issues/1198)) ([bbf779e](https://github.com/Twigpine/zero/commit/bbf779e69168d62bb1103aefdd1b10e53433209e))
+
+
+### Performance Improvements
+
+* **tui:** bounded file read, LRU rendering cache, and size caps for full-file view ([#1203](https://github.com/Twigpine/zero/issues/1203)) ([e034a93](https://github.com/Twigpine/zero/commit/e034a93815629c68976dcdab7dcc08bbe9b03693))
+
+## [0.12.0](https://github.com/Twigpine/zero/compare/v0.11.0...v0.12.0) (2026-11-02)
+
+
+### Features
+
+* **providers:** add MiniMax-M3.1-Flash to catalog ([#1180](https://github.com/Twigpine/zero/issues/1180)) ([d99f92b](https://github.com/Twigpine/zero/commit/d99f92b81a671f186cede81614c89b8e8a7f9451))
+* **sandbox:** support self-exec pattern to eliminate separate helper binary ([#946](https://github.com/Twigpine/zero/issues/946)) ([8c4e759](https://github.com/Twigpine/zero/commit/8c4e7597989ef9b3ca67b7703dfd15d92372aed2))
+* **skills:** install a skill's bundled files and point the skill tool at them ([#1167](https://github.com/Twigpine/zero/issues/1167)) ([1641506](https://github.com/Twigpine/zero/commit/164150633a8b2e6ae864ae02fd7105b201eeb68e))
+
+
+### Bug Fixes
+
+* **agent:** mark headless guardrail stops incomplete ([#1182](https://github.com/Twigpine/zero/issues/1182)) ([5aa54fe](https://github.com/Twigpine/zero/commit/5aa54fe1d2b419c9bbef73605a77919c9007cf7b))
+* bump Go to 1.26.10 for GO-2026-6809 ([#1168](https://github.com/Twigpine/zero/issues/1168)) ([6393a90](https://github.com/Twigpine/zero/commit/6393a90ed618a3536e09c02852f4ec829b97545b))
+* **chatgpt:** refresh subscription defaults and compatibility version ([#1179](https://github.com/Twigpine/zero/issues/1179)) ([f912f80](https://github.com/Twigpine/zero/commit/f912f80d002602e11ba0ef8548ecee58442874aa))
+* **deps:** refresh the lockfile to hono 4.13.13 ([#1171](https://github.com/Twigpine/zero/issues/1171)) ([de1443b](https://github.com/Twigpine/zero/commit/de1443b2edb44fd3747cc77200d54dc8cffcd0a7))
+* **oauth:** reuse the crash-safe secret store and sync encrypted publications ([#1165](https://github.com/Twigpine/zero/issues/1165)) ([84c1b15](https://github.com/Twigpine/zero/commit/84c1b1554076679a342e9cac61f8f8cdbaf3a429))
+* **redaction:** redact credentials whose trigger a greedy span swallowed ([#1158](https://github.com/Twigpine/zero/issues/1158)) ([a97db88](https://github.com/Twigpine/zero/commit/a97db8832fdba077f2d31bdf03ecef8d7c774fe1))
+* **sessions:** capture freeform apply_patch checkpoints ([#1183](https://github.com/Twigpine/zero/issues/1183)) ([6396208](https://github.com/Twigpine/zero/commit/63962081cf130c2171407936ce3beb7021d238b8))
+* **sessions:** preserve image attachment summaries on resume ([#1152](https://github.com/Twigpine/zero/issues/1152)) ([1e84849](https://github.com/Twigpine/zero/commit/1e848492e5c1919d187fb5e1eb5e7ef9bc6140dc)), closes [#1135](https://github.com/Twigpine/zero/issues/1135)
+* **tools:** grep stops where a file's line breaks stop ([#1160](https://github.com/Twigpine/zero/issues/1160)) ([aa9ba84](https://github.com/Twigpine/zero/commit/aa9ba8412eb8917daa2ca5cb3fdbd0a39276fa88))
+* **workspaceindex:** import gitsafe under the Twigpine module path ([#1153](https://github.com/Twigpine/zero/issues/1153)) ([ef4da13](https://github.com/Twigpine/zero/commit/ef4da1323f1097863ae278224b5f304c2fff909a))
+* **workspaceindex:** run Scan's git calls through gitsafe ([#1149](https://github.com/Twigpine/zero/issues/1149)) ([2ffe183](https://github.com/Twigpine/zero/commit/2ffe1831b0950b1463ec46d487d03a5fcb679cc6))
+
 ## [0.11.0](https://github.com/Twigpine/zero/compare/v0.10.0...v0.11.0) (2026-10-15)
 
 
