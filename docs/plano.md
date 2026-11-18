@@ -1,6 +1,6 @@
 # Plano do projeto: fork FabioLeitao/zero
 
-Atualizado em 2026-11-18. O "cliente" e o operador (Fabio): não há cliente externo, por isso não há formulário de perguntas nem PDF de visão. A aprovação do plano é a do operador, no PR que traz este arquivo.
+Atualizado em 2026-11-18. O "cliente" e o operador (Fabio): não há cliente externo, por isso não há formulário de perguntas. A visão do projeto está em `docs/visao-projeto-2026-11-18.pdf`. A aprovação do plano é a do operador, no PR que traz este arquivo.
 
 ## Resumo
 O `FabioLeitao/zero` é o fork do `Twigpine/zero` (Go) com patches próprios ainda fora do upstream (rótulos `rmodel`, `sbxcompanion` e `acphard` em `~/.config/zero-databoar/patch-labels.tsv`). Duas entregas:
