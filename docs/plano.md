@@ -15,6 +15,7 @@ O `FabioLeitao/zero` é o fork do `Twigpine/zero` (Go) com patches próprios ain
 | 1 | fork | tarefa 1.1, o sync `sync/upstream-v0.13.0-20261115` para o `main` | mesclada em 2026-11-17 (#28, `da0630da`) |
 | 2 | fork | tarefa 1.2, `docs/operacao.md` e `docs/plano.md` | agora |
 | 2b | fork | tarefa 1.4, o sync `sync/upstream-v0.14.0-20261117` (tag `v0.14.0`) para o `main` | em paralelo; o merge é do operador |
+| 2c | fork | tarefa 2.4, correção do harness de aceitação | antes do primeiro commit do dev externo na 2.1 |
 | 3 | fork | tarefa 2.1, etapa de desenho (R10 incluído) e testes de aceitação (arquiteto, depois QA, no mesmo branch) | depois da 1 e da 2 mescladas |
 | 4 | fork | tarefa 2.1, implementação (dev externo), de um branch cortado do `upstream/main` | depois da 3 mesclada |
 | 5 | upstream | tarefa 2.2, o mesmo branch da 4, só com o "vai" do operador | nunca sozinho |
@@ -47,6 +48,7 @@ Por que 3 e 4 separadas: o fluxo exige o desenho e os testes mesclados antes de 
 - **2.1** *(backend, `dev-externo`: Cursor)* `usage: record the provider-reported model on usage events when a router resolves an alias`. Reconferir a semântica do patch que já está no fork contra o `upstream/main` v0.13.0 (o upstream mexeu nos mesmos arquivos entre 0.12 e 0.13) e levá-lo ao que o mantenedor aprovou: R4 a R7, mais a exibição no relatório (R10, commit separado). Arquivos do rótulo `rmodel`: `internal/zeroruntime/{types,helpers}.go`, `internal/usage/report*.go`, `internal/providers/openai/*`. Desenho, testes de aceitação e implementação seguem o fluxo (PR 3, depois PR 4). Risco: **alto** (segurança, texto não confiável).
 - **2.2** *(gestão)* PR ao `Twigpine/zero`. Só com o "vai" explícito do operador, de um branch do fork cortado do `upstream/main`, com `--repo Twigpine/zero` por extenso, `Fixes #1148`, seguindo o CONTRIBUTING do upstream: issue com `issue-approved` (já tem), foco só no #1148, descrição do que mudou e por quê, testes e verificação, sem trabalho fora do escopo, poucos itens abertos de uma vez. Atende R3.
 - **2.3** *(gestão, #32)* Inventário dos patches sem trilha no upstream e rascunhos (um por item) em `docs/upstream/`, sem abrir nada. Nada novo no upstream enquanto a #1229 e a #1148 não andarem.
+- **2.4** *(qa, #37)* Corrigir o harness de aceitação da 2.1 depois da revisão pós-merge do #36: variável não usada que quebrava o lint (B1), config gravado no lugar errado no Windows (B2) e o `pending()` que escondia falha sem marca (S1). Entra no `main` antes de o dev externo trazer `internal/acceptance/`.
 
 **Dev externo da 2.1: Cursor, com justificativa por escrito.** O Cursor é eventual neste repo (só se crítico ou pedido pelo operador). Aqui o operador pediu: a tarefa é pequena e sensível, porque a falha seria deixar um valor controlado por um gateway chegar a um terminal; o operador tem franquia no Cursor. **Reserva: OpenCode**, se a franquia acabar. O `backend-dev-senior` do PA é Python + Docker, e o zero é Go.
 
