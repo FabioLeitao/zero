@@ -39,7 +39,9 @@
 # A differing path that matches no label stops the build. A label whose paths
 # match BASE, when building main, stops the build too.
 #
-# Env overrides: ZERO_REPO, ZERO_DATABOAR_WT, ZERO_DATABOAR_LABELS, ZERO_DATABOAR_DEST.
+# Env overrides: ZERO_REPO, ZERO_DATABOAR_WT, ZERO_DATABOAR_LABELS, ZERO_DATABOAR_DEST,
+# ZERO_DATABOAR_GOTOOLCHAIN (default: the host Go), ZERO_DATABOAR_SKIP_VULN=1 (never for an install).
+# The build runs govulncheck on the binary (exit 7 on findings) and gosec on the changed packages (advisory).
 set -euo pipefail
 
 REPO="${ZERO_REPO:-$HOME/Projects/dev/zero}"
@@ -233,6 +235,13 @@ fi
 cd "$WT"
 echo "building: $(git log --oneline -1)" >&2
 
+# The host Go builds by default. Set ZERO_DATABOAR_GOTOOLCHAIN (e.g. go1.27.4) to build with another
+# toolchain: govulncheck below refuses a binary whose standard library has known vulnerabilities.
+if [[ -n "${ZERO_DATABOAR_GOTOOLCHAIN:-}" ]]; then
+  export GOTOOLCHAIN="$ZERO_DATABOAR_GOTOOLCHAIN"
+fi
+echo "toolchain: ${GOTOOLCHAIN:-host} ($(go version | awk '{print $3}'))" >&2
+
 say "build"
 OUT="$WT/zero"
 go run ./cmd/zero-release build --version "$VERSION" -o "$OUT" >&2
@@ -246,6 +255,34 @@ got=$("$OUT" --version)
 go version -m "$OUT" | grep -q "vcs.revision=$(git rev-parse HEAD)" || { echo "ERROR: vcs.revision mismatch" >&2; exit 5; }
 go version -m "$OUT" | grep -q 'vcs.modified=false' || { echo "ERROR: vcs.modified is not false" >&2; exit 5; }
 echo "ok: $got" >&2
+
+say "govulncheck (binary)"
+# Deterministic local CI on what will be installed: the binary's own standard library and modules.
+if [[ "${ZERO_DATABOAR_SKIP_VULN:-0}" == 1 ]]; then
+  echo "WARNING: govulncheck skipped (ZERO_DATABOAR_SKIP_VULN=1)" >&2
+elif command -v govulncheck >/dev/null 2>&1; then
+  if ! vuln_out=$(govulncheck -mode binary "$OUT" 2>&1); then
+    printf '%s\n' "$vuln_out" >&2
+    fixed=$(printf '%s\n' "$vuln_out" | awk '/Fixed in:/{print $NF}' | sed 's/.*@//' | sort -V | tail -1)
+    echo "ERROR: govulncheck found vulnerabilities in $OUT (built with $(go version | awk '{print $3}'))" >&2
+    [[ -n "$fixed" ]] && echo "  rebuild with a toolchain at or above $fixed: ZERO_DATABOAR_GOTOOLCHAIN=$fixed zero-databoar-build ..." >&2
+    exit 7
+  fi
+else
+  echo "ERROR: govulncheck not found in PATH (go install golang.org/x/vuln/cmd/govulncheck@latest)" >&2
+  exit 7
+fi
+
+say "gosec (advisory, packages changed from the upstream base)"
+if command -v gosec >/dev/null 2>&1; then
+  mapfile -t changed_pkgs < <(git diff --name-only "$BASE" "$REF" -- '*.go' | xargs -r -n1 dirname | sort -u | sed 's#^#./#')
+  if ((${#changed_pkgs[@]})); then
+    # Summary only: the full report is long. Run `gosec ./<pkg>` to read the findings.
+    gosec -quiet -nocolor -no-fail "${changed_pkgs[@]}" 2>&1 | grep -E '^\s*(Issues|Files|Lines)' >&2 || true
+  fi
+else
+  echo "WARNING: gosec not found in PATH; skipped (advisory)" >&2
+fi
 
 say "sandbox companion"
 SANDBOX_OUT="$WT/zero-linux-sandbox"

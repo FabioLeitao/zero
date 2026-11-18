@@ -18,6 +18,16 @@ zero-databoar-build          # UM comando: busca, calcula a versão, constrói, 
 zero --version
 ```
 
+## CI local no próprio build
+
+Depois de construir e do smoke, o script roda, sem modelo e sem rede além do banco de vulnerabilidades:
+
+- **Toolchain:** por padrão o Go do host. Em 18/nov o Go 1.27.2 do T14 gerava um binário com 2 vulnerabilidades da stdlib (`GO-2026-6859` em `net/http`, corrigida na 1.27.4, e `GO-2026-6809` em `crypto/x509`, na 1.27.3). `ZERO_DATABOAR_GOTOOLCHAIN=go1.27.4` constrói com outro toolchain (o Go o baixa para `~/go/pkg/mod`); com ele o `govulncheck` dá limpo. O toolchain `go1.26.11` do `go.mod` **não serve** para este worktree: ele falha no carimbo de VCS (`git status` roda fora do repo).
+- **`govulncheck -mode binary`** no binário que será instalado: achado vira saída 7, com a dica do toolchain que corrige, e nada é instalado.
+- **`gosec`** nos pacotes alterados em relação à base do upstream: só aviso (as ocorrências aparecem no log).
+
+`ZERO_DATABOAR_SKIP_VULN=1` pula o `govulncheck`; não use para instalar. Cuidado com o disco: o toolchain baixado e os caches de build ficam em `~/go/pkg/mod` e `~/.cache/go-build` (vários GB), e o `/tmp` é tmpfs (RAM): o script não escreve binários lá.
+
 O padrão é construir `origin/main`. Para validar outro branch sem instalar: `zero-databoar-build --ref <branch> --no-install`. O binário fica em `~/Projects/dev/zero-worktrees/databoar-build/zero`.
 
 Variáveis: `ZERO_REPO` (o clone, padrão `~/Projects/dev/zero`), `ZERO_DATABOAR_WT`, `ZERO_DATABOAR_DEST` e `ZERO_DATABOAR_LABELS` (tabela de rótulos, padrão `build/patch-labels.tsv` do próprio repo, com `~/.config/zero-databoar/patch-labels.tsv` como reserva).
@@ -57,6 +67,7 @@ Cada caminho listado vai para a seção do patch a que pertence, ou para `ignore
 | 4 | caminho que difere do upstream e não está em rótulo (`--check-labels` mostra qual) |
 | 5 | o binário não bate com a versão ou com o commit |
 | 6 | rótulo já absorvido pelo upstream, ao construir o `main` |
+| 7 | `govulncheck` achou vulnerabilidade no binário (ou não está no `PATH`) |
 
 ## Rollback
 
