@@ -15,7 +15,13 @@ O zero é o agente de código do próprio projeto. Aqui ele faz o trivial, de gr
 
 ## Pré-requisitos (aprendidos na prática)
 - `zero exec` falha com saída 3 se a config listar uma raiz de escrita que não existe. Em 18/nov faltava `~/.cache/uv`: `mkdir -p ~/.cache/uv` resolve (alguém limpa o `~/.cache`; o `zero-gate` também perde os logs se isso acontecer no meio).
-- A sandbox do zero **não baixa módulos Go** (`go test` falha com `reading go.mod` / `GOPROXY=off`). Diga no brief: "não rode go test"; o PM roda `go vet` e `go test` e devolve a saída.
+- **Go dentro da sandbox do zero.** `zero exec` é headless: nunca pede permissão, e a sandbox (`zero sandbox policy`: `mode=enforce`, `network=deny`, bwrap) nega rede. Pior: ela **troca `GOMODCACHE` e `GOCACHE`** por pastas privadas e vazias em `~/.cache/zero/runtime/v1/<hash>/`, então `go vet` e `go test` tentam baixar módulos e falham (`go: downloading ...`, `dial udp`, `module lookup disabled by GOPROXY=off`). Não é recusa do zero: ele tentou e a sandbox bloqueou. Medido em 18/nov: com o cache real indicado explicitamente, `go vet` passa dentro da sandbox. Passe sempre, no `exec` e no brief:
+  ```bash
+  zero exec ... --add-dir ~/go/pkg/mod --add-dir ~/.cache/go-build ...
+  # e, no brief, todo comando go vai com este prefixo:
+  GOMODCACHE=$HOME/go/pkg/mod GOCACHE=$HOME/.cache/go-build GOPROXY=off GOFLAGS=-mod=mod go test ./<pacote>/ -count=1
+  ```
+  Se mesmo assim falhar, diga no brief "não rode go test" e rode você, devolvendo a saída. Vale conferir `go env GOMODCACHE` no host antes (cache completo = `go vet` offline passa no seu shell com `GOPROXY=off`).
 - `zero exec` só persiste a sessão com `--init-session-id <id>` (ou `-o stream-json`). Sem isso `zero usage report` fica vazio.
 
 ## Como chamar
@@ -30,10 +36,16 @@ zero exec -C "$PWD" --auto medium --max-turns 30 --resume <id> -f <brief2>.md
 ```
 Dê no brief2 a saída exata dos testes que falharam e a causa provável. Isso converge em 2 a 3 rodadas; um brief que aponta o arquivo, a função e o resultado esperado gasta menos turnos que um aberto.
 
+## Economizar turnos (a tarefa de 18/nov gastou 40+30+30 turnos relendo arquivos)
+- Antes de chamar, cole no brief os trechos exatos que ele precisa (arquivo, função, linhas) ou rode `zero repo-map --query "<tema>"` e liste os 3 a 5 arquivos. Um brief que diz onde mexer poupa dezenas de leituras.
+- O zero não tem `--specialist` no `exec`: ele roda o agente principal. Para só explorar, peça ao `explorer` (especialista só leitura, `zero specialist show explorer`); para editar, o `worker` é o que já age. Não usei nenhum nos 18/nov, nem slash-skill; as skills do zero (`golang-how-to`, `incremental-implementation`, `debugging-and-error-recovery`, `doubt-driven-development`) carregam por descrição. Nomeie no brief a que quer ("siga a skill incremental-implementation") e verifique se ele a usou (`zero search`).
+- Entre rodadas, rode você mesmo `gofmt -l`, `go vet` e o teste do pacote e devolva só as falhas: o zero errou `t.Fatal` com formato e `var a, b int = -1, -1` (lint QF1011), coisas que uma checagem barata pega antes do gate.
+
 ## Um bom brief (formato)
 1. Tarefa e achado, com arquivo e linha.
 2. A abordagem **já decidida** ("implemente exatamente isto"), não uma pergunta aberta.
 3. Testes primeiro (TDD): nomes e casos, e "veja falhar, depois implemente".
+3b. **Invariantes que os testes devem provar**, uma linha cada, inclusive os que parecem óbvios. O bug que sobrou em 18/nov era um invariante não listado ("o modelo nomeado num chunk de conteúdo não se perde quando há dois usages"): o zero passou nos testes que escreveu e eu achei com um teste meu. Pergunte-se "que caso o implementador provavelmente esquece?" e escreva-o no brief.
 4. Lista dos arquivos que pode tocar e dos que não pode.
 5. Verificação que ele deve rodar e o que **não** rodar.
 6. "Não faça mais nada. Sem commit, sem push, sem rede."
@@ -52,6 +64,8 @@ Dê no brief2 a saída exata dos testes que falharam e a causa provável. Isso c
 - `zero sandbox policy|check|grants`: política e concessões de sandbox.
 - `zero providers`, `zero models`, `zero specialist list`, `zero skills list`: o que está configurado.
 - `zero verify [--only ids]`: roda as verificações locais detectadas.
+- `zero repo-info [--json]`: caracteriza um repo em segundos, sem modelo e sem rede (arquivos, linhas por linguagem, commits, branches, contribuidores e ritmo).
+- `zero specialist list|show <nome>`: `explorer` (só leitura), `worker` (edita), `code-review` (só leitura) e os seus; `create` faz mais.
 
 ## Modos que existem e eu não testei (só o help)
 - `zero daemon start|status|stop`, `zero daemon run --session <id> --prompt <texto>` e `zero daemon attach <id>`: sessão nomeada que se acompanha e retoma; `serve-remote` abre uma ponte TLS com token. Provavelmente melhor que o `exec` solto para tarefas longas; teste antes de depender.
