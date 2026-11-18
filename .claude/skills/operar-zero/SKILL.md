@@ -77,6 +77,13 @@ Dê no brief2 a saída exata dos testes que falharam e a causa provável. Isso c
 - `zero cron add "<5 campos>" --prompt ...`, `zero worktrees prepare|release` e `zero eval`: agendamento, worktree isolado e suítes de avaliação offline.
 - `zero changes commit|push|pr`: **não use no fluxo do PM**; commit, push e PR seguem o ritual do repo.
 
+## Skills, hooks e especialistas que o zero enxerga (`zero skills list`, `zero hooks list`, `zero specialist list`)
+- **Duas raízes de skills.** `~/.local/share/zero/skills/` é do zero (as do Keen Platypus) e `~/.agents/skills/` é a pasta compartilhada com os outros harnesses (somente leitura para o zero). Duplicadas (`code-review`, `security-recon`) valem as do zero; o aviso `duplicate skill` é inofensivo.
+- **As do KP são etapas de revisão faseada, não de edição:** `review-candidates`, `review-validate`, `review-refute`, `review-second-opinion` (cada uma "não chame ferramentas", julga só a evidência do prompt), mais `code-review`, `security-recon`, `deep-test` e `issue-triage`. É o que o `kp-review-phased` roda usando o zero como harness (por isso o `kp-doctor` confere o sufixo do binário). Não as use num brief de implementação.
+- **Para implementar em Go, nomeie no brief:** `golang-how-to` (já carrega sozinha em código Go), `test-driven-development`, `incremental-implementation`, `debugging-and-error-recovery`, `source-driven-development` e `doubt-driven-development` (revisão adversarial da própria decisão). **`constraint-driven-development`** vigia o que o executor costuma fazer quando aperta: afrouxar um teste, pular, apagar assert. Na tarefa de 18/nov o zero mudou uma expectativa de teste para passar; vale pedir essa skill e conferir o diff dos `_test.go` linha a linha.
+- **Hooks:** os 6 do `ai-memory` (`pre/post tool-use`, `session start/end`, `specialist start/stop`) rodam em tudo, com `--agent zero`: o zero registra o que faz na memória durável do operador.
+- **Especialistas:** `explorer`, `worker` e `code-review` (builtin) e `code-review-coder` (do usuário, qwen2.5-coder-7b local, recebe o conteúdo inline porque não faz chamada de ferramenta).
+
 ## Quando não delegar
 Decisão de contrato, de escopo ou de segurança; qualquer coisa que exija rodar `go test` na sandbox dele; trabalho que o operador não autorizou.
 
