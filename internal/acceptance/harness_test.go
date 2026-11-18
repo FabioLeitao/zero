@@ -33,10 +33,7 @@ import (
 // binEnv lets a caller (CI, a developer) reuse a prebuilt binary.
 const binEnv = "ZERO_ACCEPTANCE_BIN"
 
-var (
-	zeroBin  string
-	buildDir string
-)
+var zeroBin string
 
 func TestMain(m *testing.M) {
 	os.Exit(run(m))
@@ -147,13 +144,26 @@ func (s *sandbox) writeConfig(profile map[string]any) {
 	if err != nil {
 		setupFatal(s.t, "marshal config: %v", err)
 	}
-	dir := filepath.Join(s.Config, "zero")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		setupFatal(s.t, "mkdir config: %v", err)
+	for _, base := range s.configBases(runtime.GOOS) {
+		dir := filepath.Join(base, "zero")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			setupFatal(s.t, "mkdir config: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "config.json"), b, 0o600); err != nil {
+			setupFatal(s.t, "write config: %v", err)
+		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), b, 0o600); err != nil {
-		setupFatal(s.t, "write config: %v", err)
+}
+
+// configBases lists the base directories where zero may look for the user
+// config on goos: XDG_CONFIG_HOME on Linux and macOS, and also %AppData% on
+// Windows, where os.UserConfigDir ignores XDG_CONFIG_HOME
+// (internal/config/paths.go, UserConfigDir).
+func (s *sandbox) configBases(goos string) []string {
+	if goos == "windows" {
+		return []string{s.Config, s.AppData}
 	}
+	return []string{s.Config}
 }
 
 type result struct {
