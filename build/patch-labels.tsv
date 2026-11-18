@@ -1,0 +1,61 @@
+# Labels for scripts/zero-databoar-build (installed as ~/.local/bin/zero-databoar-build).
+#
+# A label is part of the version string only while its paths still differ
+# between upstream/main and the ref being built:
+#   git diff --quiet upstream/main <ref> -- <paths>
+# A difference means the patch is still only on the fork. Patch-id
+# (`git cherry`) is not used: upstream squashes, so patch-ids do not match.
+#
+# Format: one section per label. The header is the label and a colon.
+# The following lines are repo-relative paths (files or directories) that
+# belong to that label. A blank line ends nothing; the next header starts
+# the next label. A line whose first non-space character is # is a comment.
+# Alternatively, one path per line as <label><TAB><path>.
+# Label order in the version string is the order of first appearance here.
+#
+# Guards, both required:
+# - A path that differs from upstream/main and matches no label stops the
+#   build (exit 4). Name it here, or drop the fork-only change.
+# - When the ref is main or origin/main, a label whose paths do not differ
+#   from upstream/main stops the build (exit 6, herding-vicuna#42). The
+#   patch was likely absorbed upstream; remove the label from this file.
+
+rmodel:
+internal/zeroruntime/types.go
+internal/zeroruntime/helpers.go
+internal/zeroruntime/provider_test.go
+internal/usage/report.go
+internal/usage/report_test.go
+internal/usage/token_economy_test.go
+internal/providers/openai/provider.go
+internal/providers/openai/codex_responses.go
+internal/providers/openai/tool_state.go
+internal/providers/openai/types.go
+internal/providers/openai/provider_test.go
+internal/providers/openai/codex_terminal_test.go
+internal/providers/openai/provider_resolved_model_test.go
+internal/providers/openai/resolved_model_nonstring_test.go
+internal/usage/report_resolved_display_test.go
+internal/usage/report_resolved_review_test.go
+internal/zeroruntime/resolved_model.go
+internal/zeroruntime/resolved_model_test.go
+internal/cli/usage.go
+internal/cli/usage_test.go
+internal/acp/usage_test.go
+
+sbxcompanion:
+Makefile
+
+acphard:
+internal/acp/agent.go
+internal/acp/agent_test.go
+internal/acp/jsonrpc.go
+internal/acp/jsonrpc_test.go
+.gitignore
+
+ignore:
+docs
+internal/acceptance
+build
+scripts/zero-databoar-build
+internal/buildlocal

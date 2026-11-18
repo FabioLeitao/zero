@@ -33,4 +33,4 @@ Proteção do main: NÃO aplicada em 2026-11-17. O CI do fork não roda desde 20
 - O revisor nunca roda na sessão do dev externo.
 
 ## Versões
-Não há builder, deployer nem documentador neste repo. O binário é gerado por `~/.local/bin/zero-databoar-build`, que falha (exit 6) se um rótulo de patch já foi absorvido pelo upstream: nesse caso, remover o rótulo de `~/.config/zero-databoar/patch-labels.tsv`.
+Não há builder, deployer nem documentador neste repo. O binário é gerado por `scripts/zero-databoar-build` (instalado como `~/.local/bin/zero-databoar-build`), com os rótulos em `build/patch-labels.tsv`; o passo a passo está em `docs/build-local.md`. O script falha (exit 6) se um rótulo de patch já foi absorvido pelo upstream (remover o rótulo da tabela) e (exit 4) se um arquivo difere do upstream sem estar em rótulo (`--check-labels` lista).
