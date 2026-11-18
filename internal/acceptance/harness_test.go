@@ -7,9 +7,6 @@
 // a prebuilt one):
 //
 //	go test -count=1 ./internal/acceptance/
-//
-// Tests wrapped in pending(t, "<task>", ...) are expected failures until the
-// task is implemented (see pending_test.go).
 package acceptance
 
 import (
@@ -61,16 +58,23 @@ func run(m *testing.M) int {
 		return 2
 	}
 	zeroBin = out
-	// Children of pending() reuse this binary instead of rebuilding it.
 	os.Setenv(binEnv, out)
 	return m.Run()
 }
 
-// setupFatal reports a failure of the test preparation. It is never an
-// "expected failure": pending() refuses to treat it as one.
+// setupFatal reports a failure of the test preparation.
 func setupFatal(t testing.TB, format string, args ...any) {
 	t.Helper()
 	t.Fatalf("SETUP-FAIL: "+format, args...)
+}
+
+// expectf records an assertion failure of the behavior under acceptance.
+func expectf(t testing.TB, ok bool, format string, args ...any) bool {
+	t.Helper()
+	if !ok {
+		t.Errorf("ACCEPT-FAIL: "+format, args...)
+	}
+	return ok
 }
 
 // sandbox is an isolated user environment for one test.
