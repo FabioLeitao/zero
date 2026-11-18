@@ -227,15 +227,13 @@ func TestA2_1_1_ResolvedModelRecordedWithTokens(t *testing.T) {
 // --- A2.1-2 ---------------------------------------------------------------
 
 func TestA2_1_2_OmittedWhenEqualToRequested(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		s := newSandbox(t)
-		echoed := chatUsage(t, s, chatRun{literal: `"` + requestedModel + `"`, everyChunk: true})
-		today := chatUsage(t, s, chatRun{}) // same server, no model key: the event of today
-		expectf(t, !echoed.has("resolvedModel"), "resolvedModel present although the reported model equals the requested one: %v", echoed.raw())
-		expectf(t, reflect.DeepEqual(echoed.raw(), today.raw()),
-			"payload differs from the event of today: got %v, want %v", echoed.raw(), today.raw())
-		requireFeature(t, s)
-	})
+	s := newSandbox(t)
+	echoed := chatUsage(t, s, chatRun{literal: `"` + requestedModel + `"`, everyChunk: true})
+	today := chatUsage(t, s, chatRun{}) // same server, no model key: the event of today
+	expectf(t, !echoed.has("resolvedModel"), "resolvedModel present although the reported model equals the requested one: %v", echoed.raw())
+	expectf(t, reflect.DeepEqual(echoed.raw(), today.raw()),
+		"payload differs from the event of today: got %v, want %v", echoed.raw(), today.raw())
+	requireFeature(t, s)
 }
 
 // --- A2.1-3 ---------------------------------------------------------------
@@ -243,17 +241,15 @@ func TestA2_1_2_OmittedWhenEqualToRequested(t *testing.T) {
 const evilControl = "\x1b[31mevil\x1b[0m\x1b]0;title\x07\x00\x7f\u0085\u009b-x"
 
 func TestA2_1_3_ControlCharactersRemoved(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		for name, lit := range map[string]string{"escaped": escapedLiteral(evilControl), "raw-utf8": rawLiteral(evilControl)} {
-			t.Run(name, func(t *testing.T) {
-				s := newSandbox(t)
-				ev := chatUsage(t, s, chatRun{literal: lit})
-				const want = "[31mevil[0m]0;title-x"
-				expectf(t, ev.str(t, "resolvedModel") == want, "resolvedModel = %q, want %q", ev.str(t, "resolvedModel"), want)
-				assertCleanLine(t, ev.Line, controlRunes)
-			})
-		}
-	})
+	for name, lit := range map[string]string{"escaped": escapedLiteral(evilControl), "raw-utf8": rawLiteral(evilControl)} {
+		t.Run(name, func(t *testing.T) {
+			s := newSandbox(t)
+			ev := chatUsage(t, s, chatRun{literal: lit})
+			const want = "[31mevil[0m]0;title-x"
+			expectf(t, ev.str(t, "resolvedModel") == want, "resolvedModel = %q, want %q", ev.str(t, "resolvedModel"), want)
+			assertCleanLine(t, ev.Line, controlRunes)
+		})
+	}
 }
 
 // --- A2.1-4 ---------------------------------------------------------------
@@ -261,48 +257,42 @@ func TestA2_1_3_ControlCharactersRemoved(t *testing.T) {
 const evilFormat = "\u202eevil\u200b-\ufeffx\u00ad\u2066y\u2069"
 
 func TestA2_1_4_FormatCharactersRemoved(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		for name, lit := range map[string]string{"escaped": escapedLiteral(evilFormat), "raw-utf8": rawLiteral(evilFormat)} {
-			t.Run(name, func(t *testing.T) {
-				s := newSandbox(t)
-				ev := chatUsage(t, s, chatRun{literal: lit})
-				expectf(t, ev.str(t, "resolvedModel") == "evil-xy", "resolvedModel = %q, want %q", ev.str(t, "resolvedModel"), "evil-xy")
-				assertCleanLine(t, ev.Line, formatRunes)
-			})
-		}
-	})
+	for name, lit := range map[string]string{"escaped": escapedLiteral(evilFormat), "raw-utf8": rawLiteral(evilFormat)} {
+		t.Run(name, func(t *testing.T) {
+			s := newSandbox(t)
+			ev := chatUsage(t, s, chatRun{literal: lit})
+			expectf(t, ev.str(t, "resolvedModel") == "evil-xy", "resolvedModel = %q, want %q", ev.str(t, "resolvedModel"), "evil-xy")
+			assertCleanLine(t, ev.Line, formatRunes)
+		})
+	}
 }
 
 // --- A2.1-5 ---------------------------------------------------------------
 
 func TestA2_1_5_LengthCapped(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		s := newSandbox(t)
-		sent := strings.Repeat("\u6a21", 100_000)
-		id, r, _ := execChat(t, s, chatRun{literal: rawLiteral(sent)})
-		expectf(t, r.Code == 0, "zero exec did not finish normally: exit %d, stderr %q", r.Code, r.Stderr)
-		got := s.onlyUsage(id).str(t, "resolvedModel")
-		expectf(t, got != "", "resolvedModel missing for an oversized reported model")
-		expectf(t, len(got) <= 256, "resolvedModel has %d bytes, want at most 256", len(got))
-		expectf(t, got != "" && len(got) == 255, "resolvedModel has %d bytes, want 255 (the largest rune-aligned prefix)", len(got))
-		expectf(t, utf8.ValidString(got), "resolvedModel is not valid UTF-8")
-		expectf(t, strings.HasPrefix(sent, got), "resolvedModel is not a prefix of the reported model")
-	})
+	s := newSandbox(t)
+	sent := strings.Repeat("\u6a21", 100_000)
+	id, r, _ := execChat(t, s, chatRun{literal: rawLiteral(sent)})
+	expectf(t, r.Code == 0, "zero exec did not finish normally: exit %d, stderr %q", r.Code, r.Stderr)
+	got := s.onlyUsage(id).str(t, "resolvedModel")
+	expectf(t, got != "", "resolvedModel missing for an oversized reported model")
+	expectf(t, len(got) <= 256, "resolvedModel has %d bytes, want at most 256", len(got))
+	expectf(t, got != "" && len(got) == 255, "resolvedModel has %d bytes, want 255 (the largest rune-aligned prefix)", len(got))
+	expectf(t, utf8.ValidString(got), "resolvedModel is not valid UTF-8")
+	expectf(t, strings.HasPrefix(sent, got), "resolvedModel is not a prefix of the reported model")
 }
 
 // --- A2.1-6 ---------------------------------------------------------------
 
 func TestA2_1_6_CleanedBeforeComparing(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		for name, reported := range map[string]string{"nul": "gpt-\x00test", "bidi": "gpt-\u202etest"} {
-			t.Run(name, func(t *testing.T) {
-				s := newSandbox(t)
-				ev := chatUsage(t, s, chatRun{literal: escapedLiteral(reported), everyChunk: true})
-				expectf(t, !ev.has("resolvedModel"), "resolvedModel recorded (%q) although the cleaned value equals the requested model", ev.str(t, "resolvedModel"))
-				requireFeature(t, s)
-			})
-		}
-	})
+	for name, reported := range map[string]string{"nul": "gpt-\x00test", "bidi": "gpt-\u202etest"} {
+		t.Run(name, func(t *testing.T) {
+			s := newSandbox(t)
+			ev := chatUsage(t, s, chatRun{literal: escapedLiteral(reported), everyChunk: true})
+			expectf(t, !ev.has("resolvedModel"), "resolvedModel recorded (%q) although the cleaned value equals the requested model", ev.str(t, "resolvedModel"))
+			requireFeature(t, s)
+		})
+	}
 }
 
 // --- A2.1-7 and A2.1-8 (Codex) --------------------------------------------
@@ -310,36 +300,32 @@ func TestA2_1_6_CleanedBeforeComparing(t *testing.T) {
 // server in an isolated environment with a static authHeaderValue, no login.
 
 func TestA2_1_7_CodexRecordsCleanedResolvedModel(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		s := newSandbox(t)
-		// response.created carries another model: only the terminal event counts.
-		id, r := execCodex(t, s, escapedLiteral("\x1b[31mgpt-5-2025-08-07"), `"ignored/created-model"`)
-		if r.Code != 0 {
-			setupFatal(t, "zero exec exited %d\nstderr: %s", r.Code, r.Stderr)
-		}
-		ev := s.onlyUsage(id)
-		const want = "[31mgpt-5-2025-08-07"
-		expectf(t, ev.str(t, "resolvedModel") == want, "resolvedModel = %q, want %q", ev.str(t, "resolvedModel"), want)
-		expectf(t, ev.num(t, "promptTokens") == 11 && ev.num(t, "completionTokens") == 7, "tokens changed: %v", ev.raw())
-		assertCleanLine(t, ev.Line, controlRunes)
-	})
+	s := newSandbox(t)
+	// response.created carries another model: only the terminal event counts.
+	id, r := execCodex(t, s, escapedLiteral("\x1b[31mgpt-5-2025-08-07"), `"ignored/created-model"`)
+	if r.Code != 0 {
+		setupFatal(t, "zero exec exited %d\nstderr: %s", r.Code, r.Stderr)
+	}
+	ev := s.onlyUsage(id)
+	const want = "[31mgpt-5-2025-08-07"
+	expectf(t, ev.str(t, "resolvedModel") == want, "resolvedModel = %q, want %q", ev.str(t, "resolvedModel"), want)
+	expectf(t, ev.num(t, "promptTokens") == 11 && ev.num(t, "completionTokens") == 7, "tokens changed: %v", ev.raw())
+	assertCleanLine(t, ev.Line, controlRunes)
 }
 
 func TestA2_1_8_CodexOmittedWhenEqualOrAbsent(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		s := newSandbox(t)
-		for name, lit := range map[string]string{"equal": `"` + codexRequested + `"`, "absent": ""} {
-			id, r := execCodex(t, s, lit, "")
-			if r.Code != 0 {
-				setupFatal(t, "%s: zero exec exited %d\nstderr: %s", name, r.Code, r.Stderr)
-			}
-			ev := s.onlyUsage(id)
-			expectf(t, !ev.has("resolvedModel"), "%s: resolvedModel recorded: %v", name, ev.raw())
+	s := newSandbox(t)
+	for name, lit := range map[string]string{"equal": `"` + codexRequested + `"`, "absent": ""} {
+		id, r := execCodex(t, s, lit, "")
+		if r.Code != 0 {
+			setupFatal(t, "%s: zero exec exited %d\nstderr: %s", name, r.Code, r.Stderr)
 		}
-		// Control: a dated model differs from the requested one and is recorded.
-		id, _ := execCodex(t, s, `"gpt-5-2025-08-07"`, "")
-		expectf(t, s.onlyUsage(id).str(t, "resolvedModel") == "gpt-5-2025-08-07", "control: a different response.model must be recorded")
-	})
+		ev := s.onlyUsage(id)
+		expectf(t, !ev.has("resolvedModel"), "%s: resolvedModel recorded: %v", name, ev.raw())
+	}
+	// Control: a dated model differs from the requested one and is recorded.
+	id, _ := execCodex(t, s, `"gpt-5-2025-08-07"`, "")
+	expectf(t, s.onlyUsage(id).str(t, "resolvedModel") == "gpt-5-2025-08-07", "control: a different response.model must be recorded")
 }
 
 // --- A2.1-9 (guard, not pending) -------------------------------------------
@@ -471,23 +457,21 @@ func expectOneAttribution(t *testing.T, text string, rep fullReport, jsonOut, wa
 }
 
 func TestA2_1_11_UsageReportShowsCleanResolvedModel(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		cases := []struct{ name, literal, want, rawValue string }{
-			{"control-escaped", escapedLiteral(evilControl), "[31mevil[0m]0;title-x", evilControl},
-			{"format-escaped", escapedLiteral(evilFormat), "evil-xy", evilFormat},
-			{"format-raw-utf8", rawLiteral(evilFormat), "evil-xy", evilFormat},
-		}
-		for _, c := range cases {
-			t.Run(c.name, func(t *testing.T) {
-				s := newSandbox(t)
-				id := chatSession(t, s, chatRun{literal: c.literal})
-				text, rep, js, code := s.reports("--session", id)
-				expectf(t, code == 0, "usage report exited %d", code)
-				expectOneAttribution(t, text, rep, js, c.want)
-				expectf(t, !strings.Contains(text, c.rawValue) && !strings.Contains(js, c.rawValue), "the raw reported value reached the report")
-			})
-		}
-	})
+	cases := []struct{ name, literal, want, rawValue string }{
+		{"control-escaped", escapedLiteral(evilControl), "[31mevil[0m]0;title-x", evilControl},
+		{"format-escaped", escapedLiteral(evilFormat), "evil-xy", evilFormat},
+		{"format-raw-utf8", rawLiteral(evilFormat), "evil-xy", evilFormat},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := newSandbox(t)
+			id := chatSession(t, s, chatRun{literal: c.literal})
+			text, rep, js, code := s.reports("--session", id)
+			expectf(t, code == 0, "usage report exited %d", code)
+			expectOneAttribution(t, text, rep, js, c.want)
+			expectf(t, !strings.Contains(text, c.rawValue) && !strings.Contains(js, c.rawValue), "the raw reported value reached the report")
+		})
+	}
 }
 
 // chatSession runs a chat session and returns its id, failing the setup when
@@ -504,12 +488,10 @@ func chatSession(t *testing.T, s *sandbox, c chatRun) string {
 // --- A2.1-12 ---------------------------------------------------------------
 
 func TestA2_1_12_OnlyRemovableCharactersLeaveNothing(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		s := newSandbox(t)
-		ev := chatUsage(t, s, chatRun{literal: escapedLiteral("\x1b\x00\u200b"), everyChunk: true})
-		expectf(t, !ev.has("resolvedModel"), "resolvedModel recorded for a value made only of removable characters: %q", ev.str(t, "resolvedModel"))
-		requireFeature(t, s)
-	})
+	s := newSandbox(t)
+	ev := chatUsage(t, s, chatRun{literal: escapedLiteral("\x1b\x00\u200b"), everyChunk: true})
+	expectf(t, !ev.has("resolvedModel"), "resolvedModel recorded for a value made only of removable characters: %q", ev.str(t, "resolvedModel"))
+	requireFeature(t, s)
 }
 
 // requireReportFeature runs a control session whose reported model differs from
@@ -536,16 +518,14 @@ func expectNothingShown(t *testing.T, s *sandbox, label, id string) {
 // --- A2.1-13 (R10) ---------------------------------------------------------
 
 func TestA2_1_13_NothingToShow(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		s := newSandbox(t)
-		equal := chatSession(t, s, chatRun{literal: `"` + requestedModel + `"`, everyChunk: true})
-		absent := chatSession(t, s, chatRun{})
-		removable := chatSession(t, s, chatRun{literal: escapedLiteral("\x1b\x00\u200b"), everyChunk: true})
-		expectNothingShown(t, s, "equal to requested", equal)
-		expectNothingShown(t, s, "no model", absent)
-		expectNothingShown(t, s, "only removable characters", removable)
-		requireReportFeature(t, s)
-	})
+	s := newSandbox(t)
+	equal := chatSession(t, s, chatRun{literal: `"` + requestedModel + `"`, everyChunk: true})
+	absent := chatSession(t, s, chatRun{})
+	removable := chatSession(t, s, chatRun{literal: escapedLiteral("\x1b\x00\u200b"), everyChunk: true})
+	expectNothingShown(t, s, "equal to requested", equal)
+	expectNothingShown(t, s, "no model", absent)
+	expectNothingShown(t, s, "only removable characters", removable)
+	requireReportFeature(t, s)
 }
 
 // --- A2.1-14 (R10) ---------------------------------------------------------
@@ -590,77 +570,73 @@ func (s *sandbox) rewriteResolvedModel(id, literal string) {
 }
 
 func TestA2_1_14_CleansOldSessionsOnRead(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		const oldStyle = "\x1b[31mold\u0085\u202e-x"
-		t.Run("a-escaped", func(t *testing.T) {
-			s := newSandbox(t)
+	const oldStyle = "\x1b[31mold\u0085\u202e-x"
+	t.Run("a-escaped", func(t *testing.T) {
+		s := newSandbox(t)
+		id := chatSession(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true})
+		s.rewriteResolvedModel(id, escapedLiteral(oldStyle))
+		text, rep, js, _ := s.reports("--session", id)
+		expectOneAttribution(t, text, rep, js, "[31mold-x")
+	})
+	t.Run("a-raw-utf8", func(t *testing.T) {
+		s := newSandbox(t)
+		id := chatSession(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true})
+		s.rewriteResolvedModel(id, rawLiteral(oldStyle))
+		text, rep, js, _ := s.reports("--session", id)
+		expectOneAttribution(t, text, rep, js, "[31mold-x")
+	})
+	t.Run("b-oversized", func(t *testing.T) {
+		s := newSandbox(t)
+		id := chatSession(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true})
+		sent := strings.Repeat("\u6a21", 100_000)
+		s.rewriteResolvedModel(id, rawLiteral(sent))
+		text, rep, _, code := s.reports("--session", id)
+		expectf(t, code == 0, "usage report exited %d", code)
+		if expectf(t, len(rep.ResolvedModels) == 1, "resolvedModels = %+v, want one entry", rep.ResolvedModels) {
+			got := rep.ResolvedModels[0].ResolvedModel
+			expectf(t, len(got) == 255 && utf8.ValidString(got) && strings.HasPrefix(sent, got), "JSON value has %d bytes (valid %v), want 255 bytes, a prefix of the stored value", len(got), utf8.ValidString(got))
+			block, _ := textBlock(text)
+			expectf(t, len(block) == 1 && strings.HasSuffix(block[0], " -> "+got), "text block does not show the capped value: %d line(s)", len(block))
+		}
+	})
+	t.Run("c-equal-after-cleaning", func(t *testing.T) {
+		s := newSandbox(t)
+		for name, lit := range map[string]string{"nul": escapedLiteral("gpt-\x00test"), "same": `"gpt-test"`} {
 			id := chatSession(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true})
-			s.rewriteResolvedModel(id, escapedLiteral(oldStyle))
-			text, rep, js, _ := s.reports("--session", id)
-			expectOneAttribution(t, text, rep, js, "[31mold-x")
-		})
-		t.Run("a-raw-utf8", func(t *testing.T) {
-			s := newSandbox(t)
-			id := chatSession(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true})
-			s.rewriteResolvedModel(id, rawLiteral(oldStyle))
-			text, rep, js, _ := s.reports("--session", id)
-			expectOneAttribution(t, text, rep, js, "[31mold-x")
-		})
-		t.Run("b-oversized", func(t *testing.T) {
-			s := newSandbox(t)
-			id := chatSession(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true})
-			sent := strings.Repeat("\u6a21", 100_000)
-			s.rewriteResolvedModel(id, rawLiteral(sent))
-			text, rep, _, code := s.reports("--session", id)
-			expectf(t, code == 0, "usage report exited %d", code)
-			if expectf(t, len(rep.ResolvedModels) == 1, "resolvedModels = %+v, want one entry", rep.ResolvedModels) {
-				got := rep.ResolvedModels[0].ResolvedModel
-				expectf(t, len(got) == 255 && utf8.ValidString(got) && strings.HasPrefix(sent, got), "JSON value has %d bytes (valid %v), want 255 bytes, a prefix of the stored value", len(got), utf8.ValidString(got))
-				block, _ := textBlock(text)
-				expectf(t, len(block) == 1 && strings.HasSuffix(block[0], " -> "+got), "text block does not show the capped value: %d line(s)", len(block))
-			}
-		})
-		t.Run("c-equal-after-cleaning", func(t *testing.T) {
-			s := newSandbox(t)
-			for name, lit := range map[string]string{"nul": escapedLiteral("gpt-\x00test"), "same": `"gpt-test"`} {
-				id := chatSession(t, s, chatRun{literal: `"deepseek/deepseek-r1:free"`, everyChunk: true})
-				s.rewriteResolvedModel(id, lit)
-				expectNothingShown(t, s, name, id)
-			}
-			requireReportFeature(t, s)
-		})
+			s.rewriteResolvedModel(id, lit)
+			expectNothingShown(t, s, name, id)
+		}
+		requireReportFeature(t, s)
 	})
 }
 
 // --- A2.1-15 (R10) ---------------------------------------------------------
 
 func TestA2_1_15_MixedLinesAndOrder(t *testing.T) {
-	pending(t, "2.1", func(t *testing.T) {
-		s := newSandbox(t)
-		for _, lit := range []string{`"deepseek/deepseek-r1:free"`, `"x/y"`, "", `"deepseek/deepseek-r1:free"`} {
-			chatSession(t, s, chatRun{literal: lit, everyChunk: true})
+	s := newSandbox(t)
+	for _, lit := range []string{`"deepseek/deepseek-r1:free"`, `"x/y"`, "", `"deepseek/deepseek-r1:free"`} {
+		chatSession(t, s, chatRun{literal: lit, everyChunk: true})
+	}
+	text, rep, _, code := s.reports()
+	expectf(t, code == 0, "usage report exited %d", code)
+	expectf(t, rep.Total.Requests == 4, "total.requests = %d, want 4", rep.Total.Requests)
+	want := []resolvedEntry{
+		{RequestedModel: requestedModel, ResolvedModel: "deepseek/deepseek-r1:free", Requests: 2, TotalTokens: 36},
+		{RequestedModel: requestedModel, ResolvedModel: "x/y", Requests: 1, TotalTokens: 18},
+	}
+	expectf(t, reflect.DeepEqual(rep.ResolvedModels, want), "resolvedModels = %+v, want %+v", rep.ResolvedModels, want)
+	block, afterTotal := textBlock(text)
+	expectf(t, afterTotal, "text report lacks the block after the total line:\n%s", text)
+	wantBlock := []string{
+		"  requests 2, tokens 36: gpt-test -> deepseek/deepseek-r1:free",
+		"  requests 1, tokens 18: gpt-test -> x/y",
+	}
+	expectf(t, reflect.DeepEqual(block, wantBlock), "text block = %q, want %q", block, wantBlock)
+	var header []string
+	for _, l := range strings.Split(text, "\n") {
+		if strings.HasPrefix(l, "date") {
+			header = strings.Fields(l)
 		}
-		text, rep, _, code := s.reports()
-		expectf(t, code == 0, "usage report exited %d", code)
-		expectf(t, rep.Total.Requests == 4, "total.requests = %d, want 4", rep.Total.Requests)
-		want := []resolvedEntry{
-			{RequestedModel: requestedModel, ResolvedModel: "deepseek/deepseek-r1:free", Requests: 2, TotalTokens: 36},
-			{RequestedModel: requestedModel, ResolvedModel: "x/y", Requests: 1, TotalTokens: 18},
-		}
-		expectf(t, reflect.DeepEqual(rep.ResolvedModels, want), "resolvedModels = %+v, want %+v", rep.ResolvedModels, want)
-		block, afterTotal := textBlock(text)
-		expectf(t, afterTotal, "text report lacks the block after the total line:\n%s", text)
-		wantBlock := []string{
-			"  requests 2, tokens 36: gpt-test -> deepseek/deepseek-r1:free",
-			"  requests 1, tokens 18: gpt-test -> x/y",
-		}
-		expectf(t, reflect.DeepEqual(block, wantBlock), "text block = %q, want %q", block, wantBlock)
-		var header []string
-		for _, l := range strings.Split(text, "\n") {
-			if strings.HasPrefix(l, "date") {
-				header = strings.Fields(l)
-			}
-		}
-		expectf(t, reflect.DeepEqual(header, []string{"date", "requests", "tokens", "est.", "cost"}), "day table header = %q, want the one of today without a new column", header)
-	})
+	}
+	expectf(t, reflect.DeepEqual(header, []string{"date", "requests", "tokens", "est.", "cost"}), "day table header = %q, want the one of today without a new column", header)
 }
