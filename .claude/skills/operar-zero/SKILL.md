@@ -55,14 +55,21 @@ Dê no brief2 a saída exata dos testes que falharam e a causa provável. Isso c
 - `git diff --stat` e `git diff -- <arquivos>` no worktree; confira o teto de linhas.
 - `gofmt -l`, `go vet`, `go test -race` rodados pelo PM, e depois o gate.
 
+## Flags do `zero exec` que ajudam o PM (conferidas no `zero exec --help`; **não testadas**, salvo o que vier dito)
+- `--plan`: modo de planejamento só leitura, **esconde as ferramentas de escrita e de shell**. Para exploração e revisão de graça; não serve para quem precisa rodar teste.
+- `--use-spec` (com `--spec-model`): redige uma especificação e **para para revisão**; um ponto de aprovação do PM antes de editar (`zero spec` revisa e aprova os rascunhos).
+- `--self-correct`: laço de verificar e corrigir depois da edição (a correção automática exige `--auto medium` ou `high`).
+- `--mode smart|deep|fast|large|precise` escolhe o modelo por preset e `--exec-profile balanced|fast|thorough` o estilo do laço (turnos, esforço, escalonamento); flags explícitas vencem. Com o provedor `auto` ainda não medi o que cada preset muda.
+- `--fork <id>` cria uma sessão nova a partir de outra; `-w/--worktree [nome]` e `--worktree-dir` fazem o próprio zero criar o worktree isolado (eu uso `git worktree add`, que é mais previsível).
+
 ## Comandos de leitura úteis (do `zero --help`)
 - `zero search <texto> [--session-id id --type tipo --json]`: busca nos eventos persistidos de todas as sessões.
-- `zero sessions list|tree|lineage|children <id>`: histórico e ramificação; `rewind-plan` e `compact-plan` mostram o que um rewind descartaria.
+- `zero sessions list|tree|lineage|children <id>`: histórico e ramificação; `rewind-plan` e `compact-plan` mostram o que um rewind descartaria. `zero sessions prune --dry-run` lista o que a limpeza removeria e por que mantém o resto (nunca remove sessão aberta por outro processo); sem a flag usa `sessions.retentionDays` da config. Útil para o disco.
 - `zero repo-map --query <texto>`: mapa determinístico do repo, arquivos ranqueados por consulta.
 - `zero context`: orçamento de contexto do workspace.
 - `zero doctor [--connectivity]`: saúde da config e do provedor.
-- `zero sandbox policy|check|grants`: política e concessões de sandbox.
-- `zero providers`, `zero models`, `zero specialist list`, `zero skills list`: o que está configurado.
+- `zero sandbox policy|setup|check|grants`: política, preparo nativo, decisão para uma ação hipotética (`check <tool> --side-effect read|write|shell|network`) e concessões persistentes.
+- `zero providers` (grupo: `list|current|catalog|add|check|use|models|...`), `zero models`, `zero specialist list|show|create|edit|path`, `zero skills list|info|add|remove`, `zero hooks list|add|remove|enable|disable`, `zero plugins list|info|add|remove`, `zero backends [doctor]`: o que está configurado e o diagnóstico sem conectar a MCP externo. Os números de `zero context` (ferramentas expostas e adiadas) variam com plugins e MCP.
 - `zero context`: o que a sessão gasta de partida (em 18/nov: ~9,9 mil tokens, com prompt de sistema 3,4k, `AGENTS.md` 1,7k, mapa do workspace 0,9k e ferramentas 3,8k; 16 ferramentas expostas, 29 disponíveis, 14 adiadas). Com o modelo `auto` a janela de contexto aparece como **desconhecida**: o roteador não a informa, então o zero não sabe quando está perto do limite; mantenha o brief e os arquivos lidos curtos.
 - `zero backends` e `zero plugins list`: servidores MCP (ai-memory, context7, exa, hermes-webui, memory, sequential-thinking), hooks (ai-memory em 6 eventos: pre/post tool, session start/end, specialist start/stop) e plugins de usuário (`kp-code-review`, ou seja, o Keen Platypus dentro do zero, e `zero-handoff`). Os hooks do ai-memory rodam em toda ferramenta: se um teste dependente de HOME falhar só na sua máquina, suspeite do hook (foi o caso de `TestNewHookDispatcherWithExtraFoldsPluginHooks`).
 - O plugin `kp-code-review` ainda **não foi testado** como revisor dentro do zero; revisão de segurança continua pelo `cyber-senior`.
