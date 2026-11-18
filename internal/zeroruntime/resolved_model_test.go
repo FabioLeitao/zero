@@ -156,12 +156,10 @@ func fuzzSanitizeSeeds() []string {
 	} {
 		seeds = append(seeds, tc.in)
 	}
-	for _, in := range []string{
+	seeds = append(seeds,
 		"\u202egpt-4", "gpt\u200b-4", "\ufeffgpt-4", "gpt\u00ad-4",
 		"gpt\u2066-4\u2069", "gpt-4\u2028", "gpt\u00a0-4",
-	} {
-		seeds = append(seeds, in)
-	}
+	)
 	seeds = append(seeds, "a\xffb\xfe")
 	seeds = append(seeds, strings.Repeat("\u6a21", 1000))
 	seeds = append(seeds, strings.Repeat("\U0001f600", 1000))

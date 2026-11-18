@@ -480,7 +480,7 @@ func TestD2_1_25_FormatReportAndRunUsage(t *testing.T) {
 		if totalIdx < 0 || headerIdx < 0 || netLOCIdx < 0 {
 			t.Fatalf("could not find total/header/net LOC in:\n%s", text)
 		}
-		if !(totalIdx < headerIdx && headerIdx < netLOCIdx) {
+		if totalIdx >= headerIdx || headerIdx >= netLOCIdx {
 			t.Fatalf("block order wrong: total@%d header@%d netLOC@%d", totalIdx, headerIdx, netLOCIdx)
 		}
 		wantLines := []string{
