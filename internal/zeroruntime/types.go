@@ -163,6 +163,9 @@ type Usage struct {
 	CachedInputTokens int
 	CacheWriteTokens  int
 	ReasoningTokens   int
+	// ResolvedModel is cleaned provider-reported attribution, at most
+	// MaxResolvedModelBytes, empty when equal to the requested model. Never pricing.
+	ResolvedModel string
 }
 
 // TotalTokens returns prompt plus completion tokens.

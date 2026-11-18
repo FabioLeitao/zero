@@ -180,6 +180,7 @@ type itemPayload struct {
 
 type responsePayload struct {
 	ID     string        `json:"id"`
+	Model  string        `json:"model"`
 	Status string        `json:"status"`
 	Usage  *usagePayload `json:"usage,omitempty"`
 	Error  *errorPayload `json:"error,omitempty"`
@@ -898,6 +899,11 @@ func (p *CodexProvider) handleTerminalResponse(
 		if event.Response.Usage.OutputTokensDetails != nil {
 			usage.ReasoningTokens = event.Response.Usage.OutputTokensDetails.ReasoningTokens
 		}
+		requested := ""
+		if p.inner != nil {
+			requested = p.inner.model
+		}
+		usage.ResolvedModel = zeroruntime.ResolvedModelAttribution(requested, event.Response.Model)
 		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
 			Type:  zeroruntime.StreamEventUsage,
 			Usage: usage,
