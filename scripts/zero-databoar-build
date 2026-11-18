@@ -1,0 +1,316 @@
+#!/usr/bin/env bash
+# zero-databoar-build — builds the Zero fork with a computed version stamp and installs it.
+#
+# Usage: zero-databoar-build [--ref REF] [--print-version] [--check-labels] [--no-install] [-h|--help]
+#   --ref REF          fork ref to build (default: origin/main)
+#   --print-version    compute and print the version, build nothing
+#   --no-install       build and check, but leave ~/.local/bin/zero untouched
+#   --check-labels     list the paths that differ from the upstream base and sit in no label,
+#                      print the lines to add to the label table, and stop (exit 4 when any)
+#
+# Version format (nothing hardcoded; recomputed on every run after fetching):
+#   <tag>+up.<n>.<upstream sha8>.databoar.<ref sha8>.<label>.<label>...
+#   tag, n, upstream sha8   `git describe --tags --long BASE` (v0.10.0-6-gce2fcffa), where BASE is
+#                           the newest upstream commit the ref contains (`git merge-base upstream/main REF`),
+#                           so a sync on a release tag stays at that tag even when upstream/main moved on
+#   ref sha8                the commit being built; matches vcs.revision in the binary
+#   labels                  fork patches still missing upstream, decided by tree
+#                           delta (not patch-id). Each label in the TSV owns a
+#                           set of paths. The label is included iff
+#                           `git diff --quiet BASE REF -- <paths>`
+#                           finds a difference.
+#   `+` is semver build metadata, so Zero's update checker still compares only <tag>.
+#
+# Flow: fetch upstream + origin -> compute version -> detached worktree at REF (your
+# checkout in ~/Projects/dev/zero is never touched) -> `zero-release build --version` ->
+# `zero-release smoke --version` -> check --version output and vcs.modified=false ->
+# install with a timestamped backup and an atomic rename -> build
+# zero-linux-sandbox from the same REF (CGO_ENABLED=0, -trimpath) and install it
+# onto the symlink's target with a .bak-<date> copy and an atomic rename, printing
+# vcs.revision -> shell setup (idempotent; a backup is taken only when something
+# changes):
+#   ~/.local/bin/zero-patched -> ~/.local/bin/zero
+#   ~/.local/bin/zero-linux-sandbox stays a symlink; the binary it points at is replaced
+#   ~/.bash_aliases: alias zero with ZERO_RESPONSE_HEADER_TIMEOUT/ZERO_STREAM_IDLE_TIMEOUT=1333s
+#   warns when `zero` in PATH does not resolve to ~/.local/bin/zero
+# Labels live in build/patch-labels.tsv of the fork (label -> paths), the source of truth, and fall
+# back to ~/.config/zero-databoar/patch-labels.tsv. The reserved label `ignore` lists fork-only
+# process files that never count as a patch.
+# A differing path that matches no label stops the build. A label whose paths
+# match BASE, when building main, stops the build too.
+#
+# Env overrides: ZERO_REPO, ZERO_DATABOAR_WT, ZERO_DATABOAR_LABELS, ZERO_DATABOAR_DEST.
+set -euo pipefail
+
+REPO="${ZERO_REPO:-$HOME/Projects/dev/zero}"
+WT="${ZERO_DATABOAR_WT:-$HOME/Projects/dev/zero-worktrees/databoar-build}"
+SELF_DIR=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+# Label table: ZERO_DATABOAR_LABELS, else the fork's own build/patch-labels.tsv (next to this
+# script's repo), else the per-user fallback.
+if [[ -n "${ZERO_DATABOAR_LABELS:-}" ]]; then
+  LABELS="$ZERO_DATABOAR_LABELS"
+elif [[ -r "$SELF_DIR/../build/patch-labels.tsv" ]]; then
+  LABELS="$SELF_DIR/../build/patch-labels.tsv"
+else
+  LABELS="$HOME/.config/zero-databoar/patch-labels.tsv"
+fi
+DEST="${ZERO_DATABOAR_DEST:-$HOME/.local/bin/zero}"
+# Interactive-only: scripts that resolve `zero` from PATH (e.g. KP) do not see aliases.
+ALIAS_LINE='alias zero="ZERO_RESPONSE_HEADER_TIMEOUT=1333s ZERO_STREAM_IDLE_TIMEOUT=1333s zero"'
+
+usage() { sed -n '2,/^set -euo pipefail$/{/^set -euo pipefail$/d;s/^# \{0,1\}//;p}' "$0"; }
+
+REF=origin/main PRINT_ONLY=0 INSTALL=1 CHECK_ONLY=0
+while (($#)); do
+  case "$1" in
+    --ref) REF="${2:?--ref needs a value}"; shift 2 ;;
+    --print-version) PRINT_ONLY=1; shift ;;
+    --no-install) INSTALL=0; shift ;;
+    --check-labels) CHECK_ONLY=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
+  esac
+done
+
+say() { printf '\n### %s\n' "$*" >&2; }
+git_r() { git -C "$REPO" "$@"; }
+
+say "fetch upstream + origin"
+for remote in upstream origin; do
+  timeout 60 git -C "$REPO" fetch -q "$remote" ||
+    echo "WARNING: fetch $remote failed; using the refs already in the clone" >&2
+done
+git_r rev-parse -q --verify "$REF^{commit}" >/dev/null || { echo "ERROR: ref $REF not found" >&2; exit 3; }
+# BASE: the upstream commit this ref was synced to (derived from git, nothing fixed). Not the moving upstream/main.
+BASE=$(git_r merge-base upstream/main "$REF") || { echo "ERROR: no merge-base between upstream/main and $REF" >&2; exit 3; }
+
+say "compute version"
+desc=$(git_r describe --tags --long "$BASE")   # v0.10.0-6-gce2fcffa
+[[ "$desc" =~ ^v?(.+)-([0-9]+)-g([0-9a-f]+)$ ]] || { echo "ERROR: unexpected describe: $desc" >&2; exit 3; }
+tag="${BASH_REMATCH[1]}" up_n="${BASH_REMATCH[2]}"
+up_sha=$(git_r rev-parse --short=8 "$BASE")
+ref_sha=$(git_r rev-parse --short=8 "$REF")
+
+[[ -r "$LABELS" ]] || { echo "ERROR: label table missing: $LABELS" >&2; exit 3; }
+
+# label -> newline-separated paths. `order` is first-seen label order.
+declare -A label_paths=()
+order=()
+current=""
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+remember_label() {
+  local label="$1"
+  [[ -n "$label" ]] || { echo "ERROR: empty label in $LABELS" >&2; exit 3; }
+  if [[ -z "${label_paths[$label]+x}" ]]; then
+    order+=("$label")
+    label_paths[$label]=""
+  fi
+}
+add_path() {
+  local label="$1" path="$2"
+  path="${path%/}"
+  [[ -n "$path" ]] || { echo "ERROR: empty path for label $label in $LABELS" >&2; exit 3; }
+  remember_label "$label"
+  if [[ -n "${label_paths[$label]}" ]]; then
+    label_paths[$label]+=$'\n'"$path"
+  else
+    label_paths[$label]="$path"
+  fi
+}
+while IFS= read -r line || [[ -n "$line" ]]; do
+  line=$(trim "$line")
+  [[ -z "$line" || "$line" == \#* ]] && continue
+  if [[ "$line" =~ ^([A-Za-z0-9_-]+):$ ]]; then
+    current="${BASH_REMATCH[1]}"
+    remember_label "$current"
+    continue
+  fi
+  if [[ "$line" == *$'\t'* ]]; then
+    add_path "${line%%$'\t'*}" "$(trim "${line#*$'\t'}")"
+    current=""
+    continue
+  fi
+  [[ -n "$current" ]] || { echo "ERROR: path before a label in $LABELS: $line" >&2; exit 3; }
+  add_path "$current" "$line"
+done <"$LABELS"
+
+# Reserved label `ignore`: fork-only process files (docs, acceptance tests). Its paths cover the
+# "no label" guard but never become a patch label, so they never reach the version string.
+ignore_paths="${label_paths[ignore]:-}"
+new_order=()
+for l in "${order[@]}"; do [[ "$l" == ignore ]] || new_order+=("$l"); done
+order=("${new_order[@]}")
+((${#order[@]})) || { echo "ERROR: no labels in $LABELS" >&2; exit 3; }
+
+declare -A wanted=()
+for label in "${order[@]}"; do
+  mapfile -t paths < <(printf '%s\n' "${label_paths[$label]}" | sed '/^$/d')
+  if ((${#paths[@]} == 0)); then
+    echo "ERROR: label $label has no paths in $LABELS" >&2
+    exit 3
+  fi
+  # exit 0: identical. exit 1: the patch is still only on the fork. anything else is a git failure.
+  rc=0
+  git_r diff --quiet "$BASE" "$REF" -- "${paths[@]}" || rc=$?
+  if ((rc == 1)); then
+    wanted[$label]=1
+  elif ((rc != 0)); then
+    echo "ERROR: git diff failed for label $label (exit $rc)" >&2
+    exit 3
+  fi
+done
+
+# A fork-only path that no label owns replaced the old "commit without a label" stop.
+uncovered=()
+while IFS= read -r file; do
+  [[ -z "$file" ]] && continue
+  covered=0
+  while IFS= read -r path; do
+    [[ -z "$path" ]] && continue
+    if [[ "$file" == "$path" || "$file" == "$path"/* ]]; then covered=1; break; fi
+  done <<<"$ignore_paths"
+  for label in "${order[@]}"; do
+    [[ "$covered" == 1 ]] && break
+    while IFS= read -r path; do
+      [[ -z "$path" ]] && continue
+      if [[ "$file" == "$path" || "$file" == "$path"/* ]]; then
+        covered=1
+        break
+      fi
+    done <<<"${label_paths[$label]}"
+    [[ "$covered" == 1 ]] && break
+  done
+  [[ "$covered" == 1 ]] || uncovered+=("$file")
+done < <(git_r diff --name-only "$BASE" "$REF")
+
+if ((${#uncovered[@]})); then
+  echo "ERROR: paths differ from the upstream base ${BASE:0:8} and match no label in $LABELS:" >&2
+  printf '  %s\n' "${uncovered[@]}" >&2
+  if ((CHECK_ONLY)); then
+    echo "add each path under its patch label (or under ignore: for process files) in $LABELS:" >&2
+    printf '%s\n' "${uncovered[@]}"
+  fi
+  exit 4
+fi
+if ((CHECK_ONLY)); then
+  echo "ok: every path that differs from ${BASE:0:8} is covered by a label" >&2
+  exit 0
+fi
+
+# herding-vicuna#42: a label still listed after upstream absorbed its paths must
+# fail the main build, not disappear from the version string without a trace.
+if [[ "$REF" == "origin/main" || "$REF" == "main" ]]; then
+  absorbed=()
+  for label in "${order[@]}"; do
+    [[ -n "${wanted[$label]:-}" ]] || absorbed+=("$label")
+  done
+  if ((${#absorbed[@]})); then
+    echo "ERROR: building $REF but these labels do not differ from the upstream base ${BASE:0:8}: ${absorbed[*]}" >&2
+    echo "  the patch may have been absorbed by upstream; remove the label from $LABELS" >&2
+    exit 6
+  fi
+fi
+
+VERSION="$tag+up.$up_n.$up_sha.databoar.$ref_sha"
+for label in "${order[@]}"; do [[ -n "${wanted[$label]:-}" ]] && VERSION+=".$label"; done
+echo "version: $VERSION" >&2
+if ((PRINT_ONLY)); then echo "$VERSION"; exit 0; fi
+
+say "worktree at $REF (detached)"
+mkdir -p "$(dirname "$WT")"
+if [[ -e "$WT/.git" ]]; then
+  git -C "$WT" checkout -q --detach "$REF"
+  git -C "$WT" reset -q --hard "$REF"
+  git -C "$WT" clean -fdxq
+else
+  git_r worktree add -q --detach "$WT" "$REF"
+fi
+cd "$WT"
+echo "building: $(git log --oneline -1)" >&2
+
+say "build"
+OUT="$WT/zero"
+go run ./cmd/zero-release build --version "$VERSION" -o "$OUT" >&2
+
+say "smoke"
+go run ./cmd/zero-release smoke --binary "$OUT" --version "$VERSION" >&2
+
+say "check stamp"
+got=$("$OUT" --version)
+[[ "$got" == "zero $VERSION" ]] || { echo "ERROR: --version printed '$got'" >&2; exit 5; }
+go version -m "$OUT" | grep -q "vcs.revision=$(git rev-parse HEAD)" || { echo "ERROR: vcs.revision mismatch" >&2; exit 5; }
+go version -m "$OUT" | grep -q 'vcs.modified=false' || { echo "ERROR: vcs.modified is not false" >&2; exit 5; }
+echo "ok: $got" >&2
+
+say "sandbox companion"
+SANDBOX_OUT="$WT/zero-linux-sandbox"
+CGO_ENABLED=0 go build -trimpath -o "$SANDBOX_OUT" ./cmd/zero-linux-sandbox >&2
+sandbox_rev=$(go version -m "$SANDBOX_OUT" | awk -F= '/vcs\.revision=/{print $2; exit}')
+echo "sandbox vcs.revision=$sandbox_rev" >&2
+[[ "$sandbox_rev" == "$(git rev-parse HEAD)" ]] || { echo "ERROR: sandbox vcs.revision mismatch" >&2; exit 5; }
+go version -m "$SANDBOX_OUT" | grep -q 'vcs.modified=false' || { echo "ERROR: sandbox vcs.modified is not false" >&2; exit 5; }
+
+if ((INSTALL == 0)); then
+  echo "built (not installed): $OUT" >&2
+  echo "sandbox built (not installed): $SANDBOX_OUT" >&2
+  exit 0
+fi
+
+say "install"
+backup=""
+if [[ -e "$DEST" ]]; then
+  backup="$DEST.bak-$(date +%Y%m%dT%H%M%S)"
+  cp -p "$DEST" "$backup"
+fi
+install -m 0755 "$OUT" "$DEST.new"
+mv -f "$DEST.new" "$DEST"
+echo "installed: $DEST -> $("$DEST" --version)" >&2
+[[ -n "$backup" ]] && echo "rollback: mv '$backup' '$DEST'" >&2
+
+# Replace the file the symlink points at. The symlink itself stays.
+sandbox_link="${ZERO_DATABOAR_SANDBOX_LINK:-$(dirname "$DEST")/zero-linux-sandbox}"
+if [[ -L "$sandbox_link" ]]; then
+  sandbox_dest=$(readlink -f "$sandbox_link")
+elif [[ -e "$sandbox_link" ]]; then
+  sandbox_dest=$sandbox_link
+else
+  sandbox_dest="$REPO/zero-linux-sandbox"
+  mkdir -p "$(dirname "$sandbox_dest")" "$(dirname "$sandbox_link")"
+fi
+sandbox_backup=""
+if [[ -e "$sandbox_dest" ]]; then
+  sandbox_backup="$sandbox_dest.bak-$(date +%Y%m%d)"
+  [[ -e "$sandbox_backup" ]] && sandbox_backup="$sandbox_dest.bak-$(date +%Y%m%dT%H%M%S)"
+  cp -p "$sandbox_dest" "$sandbox_backup"
+fi
+install -m 0755 "$SANDBOX_OUT" "$sandbox_dest.new"
+mv -f "$sandbox_dest.new" "$sandbox_dest"
+if [[ ! -e "$sandbox_link" ]]; then
+  ln -s "$sandbox_dest" "$sandbox_link"
+  echo "linked: $sandbox_link -> $sandbox_dest" >&2
+fi
+echo "sandbox installed: $sandbox_dest" >&2
+echo "sandbox vcs.revision=$(go version -m "$sandbox_dest" | awk -F= '/vcs\.revision=/{print $2; exit}')" >&2
+[[ -n "$sandbox_backup" ]] && echo "sandbox rollback: mv '$sandbox_backup' '$sandbox_dest'" >&2
+
+say "links + alias"
+BIN_DIR=$(dirname "$DEST")
+if [[ "$(readlink "$BIN_DIR/zero-patched" 2>/dev/null)" != "$DEST" ]]; then
+  ln -sfn "$DEST" "$BIN_DIR/zero-patched"
+  echo "linked: $BIN_DIR/zero-patched -> $DEST" >&2
+fi
+ALIASES="$HOME/.bash_aliases"
+if ! grep -qxF "$ALIAS_LINE" "$ALIASES" 2>/dev/null; then
+  [[ -e "$ALIASES" ]] && cp -p "$ALIASES" "$ALIASES.bak-$(date +%Y%m%dT%H%M%S)"
+  { grep -vE '^alias zero=' "$ALIASES" 2>/dev/null || true; echo "$ALIAS_LINE"; } >"$ALIASES.new"
+  mv -f "$ALIASES.new" "$ALIASES"
+  echo "alias set in $ALIASES (open a new shell or: source $ALIASES)" >&2
+fi
+resolved=$(PATH="$PATH" command -v zero || true)
+[[ "$resolved" == "$DEST" ]] || echo "WARNING: \`zero\` in PATH resolves to '$resolved', not $DEST" >&2
+echo "### ZERO_DATABOAR_BUILD_OK" >&2
