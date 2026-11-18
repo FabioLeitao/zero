@@ -63,6 +63,9 @@ Dê no brief2 a saída exata dos testes que falharam e a causa provável. Isso c
 - `zero doctor [--connectivity]`: saúde da config e do provedor.
 - `zero sandbox policy|check|grants`: política e concessões de sandbox.
 - `zero providers`, `zero models`, `zero specialist list`, `zero skills list`: o que está configurado.
+- `zero context`: o que a sessão gasta de partida (em 18/nov: ~9,9 mil tokens, com prompt de sistema 3,4k, `AGENTS.md` 1,7k, mapa do workspace 0,9k e ferramentas 3,8k; 16 ferramentas expostas, 29 disponíveis, 14 adiadas). Com o modelo `auto` a janela de contexto aparece como **desconhecida**: o roteador não a informa, então o zero não sabe quando está perto do limite; mantenha o brief e os arquivos lidos curtos.
+- `zero backends` e `zero plugins list`: servidores MCP (ai-memory, context7, exa, hermes-webui, memory, sequential-thinking), hooks (ai-memory em 6 eventos: pre/post tool, session start/end, specialist start/stop) e plugins de usuário (`kp-code-review`, ou seja, o Keen Platypus dentro do zero, e `zero-handoff`). Os hooks do ai-memory rodam em toda ferramenta: se um teste dependente de HOME falhar só na sua máquina, suspeite do hook (foi o caso de `TestNewHookDispatcherWithExtraFoldsPluginHooks`).
+- O plugin `kp-code-review` ainda **não foi testado** como revisor dentro do zero; revisão de segurança continua pelo `cyber-senior`.
 - `zero verify [--only ids]`: roda as verificações locais detectadas.
 - `zero repo-info [--json]`: caracteriza um repo em segundos, sem modelo e sem rede (arquivos, linhas por linguagem, commits, branches, contribuidores e ritmo).
 - `zero specialist list|show <nome>`: `explorer` (só leitura), `worker` (edita), `code-review` (só leitura) e os seus; `create` faz mais.
