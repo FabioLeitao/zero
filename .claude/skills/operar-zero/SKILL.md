@@ -28,9 +28,9 @@ O zero é o agente de código do próprio projeto. Aqui ele faz o trivial, de gr
 - `zero exec` só persiste a sessão com `--init-session-id <id>` (ou `-o stream-json`). Sem isso `zero usage report` fica vazio.
 
 ## Como chamar
-**Padrão (skill `operar-dev-externo`):** o zero roda de forma persistente e visível, não em chamada avulsa. Duas formas: (1) `zero daemon run --session <tarefa> --cwd <pasta> --prompt "$(cat brief.md)" ...` (ver "Daemon" acima) e o operador acompanha com `zero daemon attach <tarefa>`; (2) a TUI interativa (`zero`) num painel do herdr: `zero` não é um `kind` do herdr, então `herdr pane run <id> zero`, `herdr pane send-text` e `herdr pane send-keys enter` (dois comandos, nunca num só), `herdr pane read`; confira o `pane_current_command` do painel antes de colar qualquer coisa. O `zero exec` abaixo é **exceção** (verificação pontual, sonda de leitura, repro): registre no evento da tarefa que foi `exec` e por quê, porque ele roda sem a sessão visível e sem aprovação na hora.
+**Padrão (skill `operar-dev-externo`):** o zero roda de forma persistente e visível, não em chamada avulsa. Duas formas: (1) `zero daemon run --session <tarefa> --cwd <pasta> --prompt "$(cat brief.md)" ...` (ver "Daemon" acima) e o operador acompanha com `zero daemon attach <tarefa>`; (2) a TUI interativa (`zero`) num painel do herdr: `zero` não é um `kind` do herdr, então `herdr pane run <id> zero`, `herdr pane send-text` e `herdr pane send-keys enter` (dois comandos, nunca num só), `herdr pane read`; confira o `pane_current_command` do painel antes de colar qualquer coisa. **`zero exec` é PROIBIDO** (ordem direta do operador, 19/nov: nunca modo headless com nenhum harness, nem como exceção: nada de `zero exec`, `run`, `-p`, `--print`, `-z`). Ele roda sem a sessão visível, sem aprovação na hora e sem carregar plugins, MCP e skills como a TUI. Use só a TUI no herdr ou `zero daemon run`/`attach` (sessão nomeada, acompanhável).
 
-Exceção, `zero exec` avulso:
+Referência histórica do formato do `zero exec` (NÃO executar; mantida só para ler sessões antigas e o brief):
 ```bash
 mkdir -p ~/.cache/uv
 cd <worktree> && zero exec -C "$PWD" --auto medium --max-turns 40 \
