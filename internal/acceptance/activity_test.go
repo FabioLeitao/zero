@@ -46,7 +46,7 @@ import (
 )
 
 // activityImplemented is the ONLY switch the dev flips (see the top of the file).
-const activityImplemented = false
+const activityImplemented = true
 
 // pendingActivity skips a test until task 2.6 is implemented.
 func pendingActivity(t *testing.T) {
