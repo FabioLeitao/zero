@@ -32,7 +32,7 @@ func TestD2_6_15_formatUsageActivityASCIIeUnicode(t *testing.T) {
 
 	// Unicode
 	gotUnicode := formatUsageActivity(activity, true)
-	wantUnicode := formatUsageActivity(activity, true)
+	wantUnicode := "activity (local days, UTC+00:00)\n  sessions 1, prompts 1, steps 1, tokens 0\n  tool results 1: ok 1, error 0, unknown 0, success n/a\n  active days 1, longest streak 1 day (2026-11-15)\n\n        Dec  Jan Feb Mar  Apr May Jun  Jul Aug  Sep Oct Nov\n  Mon  " + strings.Repeat("·", 52) + "\n  Tue  " + strings.Repeat("·", 52) + "\n  Wed " + strings.Repeat("·", 53) + "\n  Thu " + strings.Repeat("·", 52) + "\n  Fri " + strings.Repeat("·", 52) + "\n  Sat " + strings.Repeat("·", 52) + "\n  Sun " + strings.Repeat("·", 51) + "█\n      less · ░ ▒ ▓ █ more"
 
 	if gotUnicode != wantUnicode {
 		t.Fatalf("D2.6-15 Unicode mismatch\ngot:\n%s\nwant:\n%s", gotUnicode, wantUnicode)
@@ -239,16 +239,38 @@ func TestD2_6_17_mapa(t *testing.T) {
 	activity = usage.Activity{
 		HeatmapFrom: from,
 		HeatmapTo:   to,
+		Prompts:     1,
 		Days:        []usage.ActivityDay{},
 	}
 	got = formatUsageActivity(activity, false)
 	lines = strings.Split(got, "\n")
-	// Contar colunas na linha dos meses (após "      ")
-	monthLine = lines[len(lines)-1]
-	// A linha dos meses começa após 6 espaços
-	colCount := len(strings.TrimRight(monthLine[6:], " "))
-	if colCount > 53 {
-		t.Fatalf("D2.6-17(f) expected <= 53 columns, got %d", colCount)
+	monthLine = ""
+	mapLines := make([]string, 0, 7)
+	for i, line := range lines {
+		if strings.HasPrefix(line, "  Mon ") || strings.HasPrefix(line, "  Tue ") ||
+			strings.HasPrefix(line, "  Wed ") || strings.HasPrefix(line, "  Thu ") ||
+			strings.HasPrefix(line, "  Fri ") || strings.HasPrefix(line, "  Sat ") ||
+			strings.HasPrefix(line, "  Sun ") {
+			if len(mapLines) == 0 && i > 0 {
+				monthLine = lines[i-1]
+			}
+			mapLines = append(mapLines, line)
+		}
+	}
+	maxMapColumns := 0
+	for _, line := range mapLines {
+		if got := len([]rune(strings.TrimRight(line[6:], " "))); got > maxMapColumns {
+			maxMapColumns = got
+		}
+	}
+	if maxMapColumns != 53 {
+		t.Fatalf("D2.6-17(f) expected 53 map columns, got %d", maxMapColumns)
+	}
+	if monthLine == "" {
+		t.Fatal("D2.6-17(f) month line not found")
+	}
+	if got := len([]rune(strings.TrimRight(monthLine[8:], " "))); got > 53 {
+		t.Fatalf("D2.6-17(f) month line exceeds 53 columns: %d", got)
 	}
 }
 
@@ -476,19 +498,53 @@ func TestD2_6_22b_linhaCorrompidaPula(t *testing.T) {
 
 // (c) --from-data with not-a-time and "" dates
 func TestD2_6_22c_sinceWithBadDates(t *testing.T) {
-	now := time.Date(2026, 11, 18, 15, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	store := sessions.NewStore(sessions.StoreOptions{RootDir: root, Now: fixedCLITime("2026-11-18T15:00:00Z")})
+	session, err := store.Create(sessions.CreateInput{SessionID: "s1"})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if _, err := store.AppendEvents(session.SessionID, []sessions.AppendEventInput{
+		{Type: sessions.EventMessage, Payload: map[string]any{"role": "user"}},
+		{Type: sessions.EventMessage, Payload: map[string]any{"role": "user"}},
+		{Type: sessions.EventMessage, Payload: map[string]any{"role": "user"}},
+	}); err != nil {
+		t.Fatalf("append events: %v", err)
+	}
 	events := []sessions.Event{
-		{SessionID: "s1", Type: "message", CreatedAt: "2026-11-18T10:00:00Z", Payload: json.RawMessage(`{"role":"user","content":"x"}`)},
-		{SessionID: "s1", Type: "message", CreatedAt: "not-a-time", Payload: json.RawMessage(`{"role":"user"}`)},
-		{SessionID: "s1", Type: "message", CreatedAt: "", Payload: json.RawMessage(`{"role":"user"}`)},
+		{SessionID: session.SessionID, Sequence: 1, Type: sessions.EventMessage, CreatedAt: "2026-11-18T10:00:00Z", Payload: json.RawMessage(`{"role":"user"}`)},
+		{SessionID: session.SessionID, Sequence: 2, Type: sessions.EventMessage, CreatedAt: "not-a-time", Payload: json.RawMessage(`{"role":"user"}`)},
+		{SessionID: session.SessionID, Sequence: 3, Type: sessions.EventMessage, CreatedAt: "", Payload: json.RawMessage(`{"role":"user"}`)},
 	}
-	got := usage.BuildActivity(events, usage.ActivityOptions{Now: now, Since: "2026-11-01"})
-	// not-a-time passa pelo filtro de texto ( "n" > "2" ) e conta em undatedEvents
-	// "" é descartado pelo filtro
-	if got.UndatedEvents != 2 {
-		t.Fatalf("D2.6-22(c) undatedEvents = %d, want 1", got.UndatedEvents)
+	var eventData bytes.Buffer
+	for _, event := range events {
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			t.Fatalf("marshal event: %v", err)
+		}
+		eventData.Write(encoded)
+		eventData.WriteByte('\n')
 	}
-	if got.Prompts != 3 {
-		t.Fatalf("D2.6-22(c) prompts = %d, want 1", got.Prompts)
+	if err := os.WriteFile(filepath.Join(root, session.SessionID, sessions.EventsFile), eventData.Bytes(), 0o600); err != nil {
+		t.Fatalf("rewrite events: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	exitCode := runWithDeps([]string{"usage", "report", "--since", "2026-11-01", "--json"}, &stdout, &stderr, appDeps{
+		newSessionStore: func() *sessions.Store { return store },
+		now:             func() time.Time { return time.Date(2026, 11, 18, 15, 0, 0, 0, time.UTC) },
+		getenv:          func(key string) string { return "" },
+	})
+	if exitCode != exitSuccess {
+		t.Fatalf("usage exit=%d, stderr=%q", exitCode, stderr.String())
+	}
+	var report usageReportWithActivity
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, stdout.String())
+	}
+	if report.Activity.UndatedEvents != 1 {
+		t.Fatalf("D2.6-22(c) undatedEvents = %d, want 1", report.Activity.UndatedEvents)
+	}
+	if report.Activity.Prompts != 2 {
+		t.Fatalf("D2.6-22(c) prompts = %d, want 2", report.Activity.Prompts)
 	}
 }

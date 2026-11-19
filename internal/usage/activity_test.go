@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/Twigpine/zero/internal/sessions"
 )
@@ -283,14 +284,27 @@ func TestD2_6_10_Sequencia(t *testing.T) {
 		{[]string{"2025-12-31", "2026-01-01"}, 2, 2, "2025-12-31", "2026-01-01"},
 		{[]string{"2026-02-28", "2026-03-01"}, 2, 2, "2026-02-28", "2026-03-01"},               // 2026 nao e bissexto
 		{[]string{"2028-02-28", "2028-02-29", "2028-03-01"}, 3, 3, "2028-02-28", "2028-03-01"}, // 2028 e bissexto (29 fev), 3 datas ativas
-		// DST change case would need time.LoadLocation, skip if not available
 	}
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load America/New_York: %v", err)
+	}
+	tests = append(tests, struct {
+		dates                  []string
+		wantActive, wantStreak int
+		wantFrom, wantTo       string
+	}{[]string{"2026-11-01", "2026-11-02"}, 2, 2, "2026-11-01", "2026-11-02"})
 	for _, tt := range tests {
 		events := make([]sessions.Event, len(tt.dates))
 		for i, d := range tt.dates {
-			events[i] = activityEvent("s", "message", d+`T10:00:00Z`, `{"role":"user"}`)
+			date, _ := time.ParseInLocation("2006-01-02", d, loc)
+			events[i] = activityEvent("s", "message", date.Add(12*time.Hour).Format(time.RFC3339), `{"role":"user"}`)
 		}
-		got := BuildActivity(events, ActivityOptions{Now: time.Date(2026, 11, 18, 15, 0, 0, 0, time.UTC)})
+		now := time.Date(2026, 11, 18, 15, 0, 0, 0, loc)
+		if len(tt.dates) == 2 && tt.dates[0] == "2026-11-01" {
+			now = time.Date(2026, 11, 3, 15, 0, 0, 0, loc)
+		}
+		got := BuildActivity(events, ActivityOptions{Now: now})
 		if got.ActiveDays != tt.wantActive {
 			t.Fatalf("D2.6-10 active days = %d, want %d (dates %v)", got.ActiveDays, tt.wantActive, tt.dates)
 		}
