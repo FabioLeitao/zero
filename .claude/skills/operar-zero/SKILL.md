@@ -42,6 +42,25 @@ zero exec -C "$PWD" --auto medium --max-turns 30 --resume <id> -f <brief2>.md
 ```
 Dê no brief2 a saída exata dos testes que falharam e a causa provável. Isso converge em 2 a 3 rodadas; um brief que aponta o arquivo, a função e o resultado esperado gasta menos turnos que um aberto.
 
+## Truques do zero para o brief (do `zero --help`; alinhado com a skill global do Owl)
+- **Especialistas** (`zero specialist list|show <nome>`): `explorer` (só leitura: mapear o repo e achar os pontos de gancho), `worker` (edita), `code-review` (só leitura: pré-triagem do diff). Peça explorer, depois worker, depois code-review.
+- **Contexto barato antes de gastar turno:** `zero repo-map` (mapa determinístico), `zero context` (orçamento de contexto), `zero repo-info` (sem modelo e sem rede), `zero search <texto>` (nos eventos das sessões persistidas).
+- **`zero verify`** roda as verificações locais detectadas: use no fim, depois dos comandos nomeados no brief.
+- **`--allow-escalation` NÃO neste projeto:** a skill global lista a flag, mas ela pode subir para modelo Anthropic, e o operador não tem API da Anthropic (ver "Provedor e modelo"). Quando o executor travar, o PM troca o perfil ou o modelo de forma explícita.
+- **Plano sem escrever:** `/plan` na TUI esconde as ferramentas de escrita; use para leitura e desenho.
+- **Sandbox:** antes de pedir algo que escreve fora do workspace, `zero sandbox check <ferramenta> --side-effect write --path <caminho>` diz se vai perguntar (`prompt`) ou negar. Grants persistentes são por ferramenta, não por caminho.
+- **Sem uso sem ordem do operador:** `zero cron`, `zero worktrees` (ele não gosta de worktree), `zero changes commit|push|pr` (commit e push são do PM), `zero auth`, `zero upgrade`.
+
+## Verificação e LSP no host (Go)
+| Ferramenta | Uso |
+|---|---|
+| `gofmt -l ./internal` | executor, a cada edição |
+| `go vet` e `go test` por pacote, offline (`GOMODCACHE`, `GOCACHE`, `GOPROXY=off`, `GOFLAGS=-mod=readonly`) | executor |
+| `gosec -quiet` nos pacotes tocados | executor roda; sem achado novo sobre a linha de base (10 MEDIUM em `usage` e `cli`) |
+| `govulncheck` | só o PM, fora da sandbox, com `GOTOOLCHAIN=go1.27.4` |
+| `gopls` v0.23.0 | disponível para navegação |
+| `staticcheck`, `golangci-lint` | **não instalados**: o lint de verdade é o `lint-static` do `zero-gate` (rode antes de commitar; um `QF1001` passou despercebido pelo `go vet` na 2.6) |
+
 ## Economizar turnos (a tarefa de 18/nov gastou 40+30+30 turnos relendo arquivos)
 - Antes de chamar, cole no brief os trechos exatos que ele precisa (arquivo, função, linhas) ou rode `zero repo-map --query "<tema>"` e liste os 3 a 5 arquivos. Um brief que diz onde mexer poupa dezenas de leituras.
 - O zero não tem `--specialist` no `exec`: ele roda o agente principal. Para só explorar, peça ao `explorer` (especialista só leitura, `zero specialist show explorer`); para editar, o `worker` é o que já age. Não usei nenhum nos 18/nov, nem slash-skill; as skills do zero (`golang-how-to`, `incremental-implementation`, `debugging-and-error-recovery`, `doubt-driven-development`) carregam por descrição. Nomeie no brief a que quer ("siga a skill incremental-implementation") e verifique se ele a usou (`zero search`).
