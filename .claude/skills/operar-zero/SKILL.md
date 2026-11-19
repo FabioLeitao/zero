@@ -9,7 +9,7 @@ O zero é o agente de código do próprio projeto. Aqui ele faz o trivial, de gr
 
 ## Regras que não mudam
 - O zero **não commita, não empurra e não abre PR**. Quem commita é o PM, assinado e sem trailer de ferramenta. Todo brief termina com "No git commit, no push, no network".
-- O zero trabalha num **worktree** do branch da tarefa, nunca no clone canônico: `git worktree add -B <branch> <pasta> origin/<branch>`.
+- O zero trabalha no **branch da tarefa**, no próprio clone (o operador não gosta de worktree destacado): `git switch -c <branch> origin/main`. Worktree só se o clone estiver sujo ou em uso por outra sessão, e removido ao fim da tarefa. Enquanto o zero edita, o PM não escreve no mesmo clone (commit só por caminho, `git commit -- <arquivo>`).
 - Nada do que ele escreve entra sem o `zero-gate` no SHA exato e uma segunda opinião **só leitura** (Codex ou Hermes) antes de qualquer push.
 - Limite de escopo no brief: arquivos permitidos, "não toque em X", e um teto de linhas (ex.: 60). Se estourar o teto ou tocar um contrato, pare e mostre ao operador.
 
@@ -28,6 +28,9 @@ O zero é o agente de código do próprio projeto. Aqui ele faz o trivial, de gr
 - `zero exec` só persiste a sessão com `--init-session-id <id>` (ou `-o stream-json`). Sem isso `zero usage report` fica vazio.
 
 ## Como chamar
+**Padrão (skill `operar-dev-externo`):** o zero roda de forma persistente e visível, não em chamada avulsa. Duas formas: (1) `zero daemon run --session <tarefa> --cwd <pasta> --prompt "$(cat brief.md)" ...` (ver "Daemon" acima) e o operador acompanha com `zero daemon attach <tarefa>`; (2) a TUI interativa (`zero`) num painel do herdr: `zero` não é um `kind` do herdr, então `herdr pane run <id> zero`, `herdr pane send-text` e `herdr pane send-keys enter` (dois comandos, nunca num só), `herdr pane read`; confira o `pane_current_command` do painel antes de colar qualquer coisa. O `zero exec` abaixo é **exceção** (verificação pontual, sonda de leitura, repro): registre no evento da tarefa que foi `exec` e por quê, porque ele roda sem a sessão visível e sem aprovação na hora.
+
+Exceção, `zero exec` avulso:
 ```bash
 mkdir -p ~/.cache/uv
 cd <worktree> && zero exec -C "$PWD" --auto medium --max-turns 40 \
