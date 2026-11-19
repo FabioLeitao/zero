@@ -59,3 +59,10 @@ internal/acceptance
 build
 scripts/zero-databoar-build
 internal/buildlocal
+
+ustats:
+internal/usage/activity.go
+internal/usage/activity_test.go
+internal/cli/usage_activity.go
+internal/cli/usage_activity_test.go
+internal/cli/usage.go

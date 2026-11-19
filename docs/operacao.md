@@ -3,7 +3,7 @@ Modo: supervisionado
 Desde: 2026-11-16
 Decidido por: operador (via Owl)
 Paradas adiadas: nenhuma
-Dev externo: todas as tarefas de código (Go). A 2.1 vai para o Cursor (eventual: justificativa no plano); reserva: OpenCode. Exceção, por ordem direta do operador em 2026-11-18, só para a tarefa 2.5 (#44): o próprio `zero` (dogfooding, provedor `freellmapi-auto`, modelo `auto`); ver a skill `operar-zero`
+Dev externo: todas as tarefas de código (Go). A 2.1 vai para o Cursor (eventual: justificativa no plano); reserva: OpenCode. Exceção, por ordem direta do operador em 2026-11-18, só para as tarefas 2.5 (#44, entregue) e 2.6 (#45, ordem de 2026-11-18): o próprio `zero` (dogfooding, provedor `freellmapi-auto`, modelo `auto`), plano B OpenCode; ver a skill `operar-zero`. Na 2.6 o QA (Claude) escreve os testes de aceitação A2.6-1..10 antes, o executor trabalha no branch do clone (sem worktree), o commit é local e assinado, e push e PR só com o "vai" do operador
 Segurança: modo=ativo
 Proteção do main: NÃO aplicada em 2026-11-17. O CI do fork não roda desde 2026-10-14 (nenhuma execução nos merges #28 e #34, com o Actions habilitado), então checks obrigatórios bloqueariam todo merge. Aplicar a configuração padrão (checks do CI obrigatórios, sem force-push nem exclusão, valendo para o administrador) quando o CI voltar a rodar verde no `main`; quem aplica é o `project-manager`, depois de avisar o operador
 

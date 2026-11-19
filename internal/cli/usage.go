@@ -139,14 +139,16 @@ func runUsage(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) i
 	if err != nil {
 		return writeAppError(stderr, err.Error(), exitCrash)
 	}
+	activity := usage.BuildActivity(events, usage.ActivityOptions{Now: deps.now(), Since: since})
 
 	if options.json {
-		if err := writePrettyJSON(stdout, report); err != nil {
+		if err := writePrettyJSON(stdout, usageReportWithActivity{Report: report, Activity: activity}); err != nil {
 			return exitCrash
 		}
 		return exitSuccess
 	}
-	if _, err := fmt.Fprintln(stdout, FormatReport(report, diff.Insertions, diff.Deletions)); err != nil {
+	text := FormatReport(report, diff.Insertions, diff.Deletions) + "\n\n" + formatUsageActivity(activity, usageActivityUnicode(deps.getenv))
+	if _, err := fmt.Fprintln(stdout, text); err != nil {
 		return exitCrash
 	}
 	return exitSuccess
@@ -336,6 +338,8 @@ Flags:
 
 Cost is reconstructed from session model metadata and is an estimate; net LOC
 is a working-tree diff proxy and is labeled as an estimate.
+The report ends with an activity summary (sessions, prompts, steps, tool
+results, active days, streak and a heatmap) in the local time zone.
 `)
 	return err
 }

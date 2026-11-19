@@ -9,7 +9,7 @@ O zero é o agente de código do próprio projeto. Aqui ele faz o trivial, de gr
 
 ## Regras que não mudam
 - O zero **não commita, não empurra e não abre PR**. Quem commita é o PM, assinado e sem trailer de ferramenta. Todo brief termina com "No git commit, no push, no network".
-- O zero trabalha num **worktree** do branch da tarefa, nunca no clone canônico: `git worktree add -B <branch> <pasta> origin/<branch>`.
+- O zero trabalha no **branch da tarefa**, no próprio clone (o operador não gosta de worktree destacado): `git switch -c <branch> origin/main`. Worktree só se o clone estiver sujo ou em uso por outra sessão, e removido ao fim da tarefa. Enquanto o zero edita, o PM não escreve no mesmo clone (commit só por caminho, `git commit -- <arquivo>`).
 - Nada do que ele escreve entra sem o `zero-gate` no SHA exato e uma segunda opinião **só leitura** (Codex ou Hermes) antes de qualquer push.
 - Limite de escopo no brief: arquivos permitidos, "não toque em X", e um teto de linhas (ex.: 60). Se estourar o teto ou tocar um contrato, pare e mostre ao operador.
 
@@ -17,14 +17,20 @@ O zero é o agente de código do próprio projeto. Aqui ele faz o trivial, de gr
 - `zero exec` falha com saída 3 se a config listar uma raiz de escrita que não existe. Em 18/nov faltava `~/.cache/uv`: `mkdir -p ~/.cache/uv` resolve (alguém limpa o `~/.cache`; o `zero-gate` também perde os logs se isso acontecer no meio).
 - **Go dentro da sandbox do zero.** `zero exec` é headless: nunca pede permissão, e a sandbox (`zero sandbox policy`: `mode=enforce`, `network=deny`, bwrap) nega rede. Pior: ela **troca `GOMODCACHE` e `GOCACHE`** por pastas privadas e vazias em `~/.cache/zero/runtime/v1/<hash>/`, então `go vet` e `go test` tentam baixar módulos e falham (`go: downloading ...`, `dial udp`, `module lookup disabled by GOPROXY=off`). Não é recusa do zero: ele tentou e a sandbox bloqueou. Medido em 18/nov: com o cache real indicado explicitamente, `go vet` passa dentro da sandbox. Passe sempre, no `exec` e no brief:
   ```bash
-  zero exec ... --add-dir ~/go/pkg/mod --add-dir ~/.cache/go-build ...
-  # e, no brief, todo comando go vai com este prefixo:
-  GOMODCACHE=$HOME/go/pkg/mod GOCACHE=$HOME/.cache/go-build GOPROXY=off GOFLAGS=-mod=mod go test ./<pacote>/ -count=1
+  zero exec|daemon run ... --add-dir ~/.cache/go-build ...     # só o cache de build precisa de escrita
+  # e, no brief, todo comando go vai com este prefixo (o ambiente tem de ser dito no comando):
+  GOMODCACHE=$HOME/go/pkg/mod GOCACHE=$HOME/.cache/go-build GOPROXY=off GOFLAGS=-mod=readonly go test ./<pacote>/ -count=1
   ```
-  Se mesmo assim falhar, diga no brief "não rode go test" e rode você, devolvendo a saída. Vale conferir `go env GOMODCACHE` no host antes (cache completo = `go vet` offline passa no seu shell com `GOPROXY=off`).
+  Medido em 19/nov dentro do daemon: só `--add-dir ~/.cache/go-build` sem `GOMODCACHE` explícito falha (`module lookup disabled by GOPROXY=off`); com o `GOMODCACHE` dito no comando passa, e a **leitura** de `~/go/pkg/mod` não precisa de `--add-dir`. Antes, rode `zero sandbox check bash --side-effect write --path ~/.cache/go-build` (decision=prompt é o esperado; o `--add-dir` libera). Nunca `--skip-permissions-unsafe` nem `--auto high`. O executor roda `go vet`/`go test` por pacote; `-race` e o gate ficam com o PM. Depois: `gosec -quiet ./<pacotes>/...` (offline) sem achado novo sobre a linha de base, e `govulncheck` só no PM, fora da sandbox.
+- **Provedor e modelo.** O operador não tem API da Anthropic: **nunca `--mode` (os presets escolhem modelo Anthropic e falham com "belongs to anthropic, not openai-compatible") nem `--allow-escalation`**. Escolha o perfil por processo com `ZERO_PROVIDER=<perfil>` (não muda o provedor global) e o modelo com `-m`. Perfis de `zero providers list`: `freellmapi-auto` (free, modelo `auto`; em 19/nov exigiu retrabalho do PM nas duas tarefas), `chatgpt` (assinatura ChatGPT por OAuth: `gpt-5.6-luna` < `gpt-5.6-terra` < `gpt-6-luna`, do mais barato ao mais caro; sol não aparece) e perfis Ollama locais `zero-review-*` em `:11434/v1`. Comece pelo mais barato que sirva e registre o modelo no evento.
+- **Daemon (sessão nomeada).** `zero daemon start` (o worker herda o ambiente do daemon: para usar `chatgpt`, suba o daemon com `ZERO_PROVIDER=chatgpt`), `zero daemon run --session <id> --cwd <pasta> --prompt "$(cat brief.md)" --add-dir ~/.cache/go-build --auto medium --max-turns 40 --tag <t> --session-title <t>`, `zero daemon status`, `zero daemon attach <id>` (o operador acompanha ao vivo) e `zero daemon stop` ao fim da rodada e a cada troca de binário. Saída em NDJSON (schemaVersion 2: reasoning/text/tool/usage/final/run_end). `--use-spec` rascunha a spec e para para revisão. `serve-remote` abre rede: só com ordem do operador.
+- **Limite de turnos esgotado** (`exitCode 4`, "reached the max-turns limit"): a sessão deixa o trabalho pela metade e sem relatório. Confira o diff antes de aceitar (em 19/nov faltava uma linha de produção apagada, um dreno sem espera, dois testes errados e um arquivo lixo) e termine à mão, sem repetir a mesma chamada.
 - `zero exec` só persiste a sessão com `--init-session-id <id>` (ou `-o stream-json`). Sem isso `zero usage report` fica vazio.
 
 ## Como chamar
+**Padrão (skill `operar-dev-externo`):** o zero roda de forma persistente e visível, não em chamada avulsa. Duas formas: (1) `zero daemon run --session <tarefa> --cwd <pasta> --prompt "$(cat brief.md)" ...` (ver "Daemon" acima) e o operador acompanha com `zero daemon attach <tarefa>`; (2) a TUI interativa (`zero`) num painel do herdr: `zero` não é um `kind` do herdr, então `herdr pane run <id> zero`, `herdr pane send-text` e `herdr pane send-keys enter` (dois comandos, nunca num só), `herdr pane read`; confira o `pane_current_command` do painel antes de colar qualquer coisa. **`zero exec` é PROIBIDO** (ordem direta do operador, 19/nov: nunca modo headless com nenhum harness, nem como exceção: nada de `zero exec`, `run`, `-p`, `--print`, `-z`). Ele roda sem a sessão visível, sem aprovação na hora e sem carregar plugins, MCP e skills como a TUI. Use só a TUI no herdr ou `zero daemon run`/`attach` (sessão nomeada, acompanhável).
+
+Referência histórica do formato do `zero exec` (NÃO executar; mantida só para ler sessões antigas e o brief):
 ```bash
 mkdir -p ~/.cache/uv
 cd <worktree> && zero exec -C "$PWD" --auto medium --max-turns 40 \
@@ -35,6 +41,25 @@ Rode em segundo plano e espere com um Monitor sobre o arquivo de saída; não fa
 zero exec -C "$PWD" --auto medium --max-turns 30 --resume <id> -f <brief2>.md
 ```
 Dê no brief2 a saída exata dos testes que falharam e a causa provável. Isso converge em 2 a 3 rodadas; um brief que aponta o arquivo, a função e o resultado esperado gasta menos turnos que um aberto.
+
+## Truques do zero para o brief (do `zero --help`; alinhado com a skill global do Owl)
+- **Especialistas** (`zero specialist list|show <nome>`): `explorer` (só leitura: mapear o repo e achar os pontos de gancho), `worker` (edita), `code-review` (só leitura: pré-triagem do diff). Peça explorer, depois worker, depois code-review.
+- **Contexto barato antes de gastar turno:** `zero repo-map` (mapa determinístico), `zero context` (orçamento de contexto), `zero repo-info` (sem modelo e sem rede), `zero search <texto>` (nos eventos das sessões persistidas).
+- **`zero verify`** roda as verificações locais detectadas: use no fim, depois dos comandos nomeados no brief.
+- **`--allow-escalation` NÃO neste projeto:** a skill global lista a flag, mas ela pode subir para modelo Anthropic, e o operador não tem API da Anthropic (ver "Provedor e modelo"). Quando o executor travar, o PM troca o perfil ou o modelo de forma explícita.
+- **Plano sem escrever:** `/plan` na TUI esconde as ferramentas de escrita; use para leitura e desenho.
+- **Sandbox:** antes de pedir algo que escreve fora do workspace, `zero sandbox check <ferramenta> --side-effect write --path <caminho>` diz se vai perguntar (`prompt`) ou negar. Grants persistentes são por ferramenta, não por caminho.
+- **Sem uso sem ordem do operador:** `zero cron`, `zero worktrees` (ele não gosta de worktree), `zero changes commit|push|pr` (commit e push são do PM), `zero auth`, `zero upgrade`.
+
+## Verificação e LSP no host (Go)
+| Ferramenta | Uso |
+|---|---|
+| `gofmt -l ./internal` | executor, a cada edição |
+| `go vet` e `go test` por pacote, offline (`GOMODCACHE`, `GOCACHE`, `GOPROXY=off`, `GOFLAGS=-mod=readonly`) | executor |
+| `gosec -quiet` nos pacotes tocados | executor roda; sem achado novo sobre a linha de base (10 MEDIUM em `usage` e `cli`) |
+| `govulncheck` | só o PM, fora da sandbox, com `GOTOOLCHAIN=go1.27.4` |
+| `gopls` v0.23.0 | disponível para navegação |
+| `staticcheck`, `golangci-lint` | **não instalados**: o lint de verdade é o `lint-static` do `zero-gate` (rode antes de commitar; um `QF1001` passou despercebido pelo `go vet` na 2.6) |
 
 ## Economizar turnos (a tarefa de 18/nov gastou 40+30+30 turnos relendo arquivos)
 - Antes de chamar, cole no brief os trechos exatos que ele precisa (arquivo, função, linhas) ou rode `zero repo-map --query "<tema>"` e liste os 3 a 5 arquivos. Um brief que diz onde mexer poupa dezenas de leituras.
@@ -57,7 +82,7 @@ Dê no brief2 a saída exata dos testes que falharam e a causa provável. Isso c
 
 ## Flags do `zero exec` que ajudam o PM (conferidas no `zero exec --help`; **não testadas**, salvo o que vier dito)
 - `--plan`: modo de planejamento só leitura, **esconde as ferramentas de escrita e de shell**. Para exploração e revisão de graça; não serve para quem precisa rodar teste.
-- `--use-spec` (com `--spec-model`): redige uma especificação e **para para revisão**; um ponto de aprovação do PM antes de editar (`zero spec` revisa e aprova os rascunhos).
+- `--use-spec` (com `--spec-model`): redige uma especificação e **para para revisão** (`zero spec show|approve|reject`). **Armadilha medida em 19/nov (issue #47 do fork):** com hooks ou MCP sandboxados na config (os 6 hooks do ai-memory), o `protectedCreateMonitor` (`internal/sandbox/protected_create_linux.go`) apaga `.zero/` logo depois de a spec ser gravada, então `zero spec show` falha (`lstat ... no such file`) e `zero spec approve` não tem o que aprovar; a sessão do rascunho também não é retomável (`--resume` → "not resumable"). Com config mínima (`XDG_CONFIG_HOME=<tmp>`, um provedor, sem hooks nem MCP) o arquivo fica. Contornos: rascunhar com config mínima, ou extrair o texto do campo `plan` do `events.jsonl` da sessão e colá-lo no prompt de uma sessão nova (sem `--use-spec`), ou usar `--plan`.
 - `--self-correct`: laço de verificar e corrigir depois da edição (a correção automática exige `--auto medium` ou `high`).
 - `--mode smart|deep|fast|large|precise` escolhe o modelo por preset e `--exec-profile balanced|fast|thorough` o estilo do laço (turnos, esforço, escalonamento); flags explícitas vencem. Com o provedor `auto` ainda não medi o que cada preset muda.
 - `--fork <id>` cria uma sessão nova a partir de outra; `-w/--worktree [nome]` e `--worktree-dir` fazem o próprio zero criar o worktree isolado (eu uso `git worktree add`, que é mais previsível).
@@ -78,7 +103,7 @@ Dê no brief2 a saída exata dos testes que falharam e a causa provável. Isso c
 - `zero specialist list|show <nome>`: `explorer` (só leitura), `worker` (edita), `code-review` (só leitura) e os seus; `create` faz mais.
 
 ## Modos que existem e eu não testei (só o help)
-- `zero daemon start|status|stop`, `zero daemon run --session <id> --prompt <texto>` e `zero daemon attach <id>`: sessão nomeada que se acompanha e retoma; `serve-remote` abre uma ponte TLS com token. Provavelmente melhor que o `exec` solto para tarefas longas; teste antes de depender.
+- `zero daemon start|status|stop`, `zero daemon run --session <id> --prompt <texto>` e `zero daemon attach <id>`: sessão nomeada (o help só diz "Create/route a session and stream its output"): `attach` acompanha ao vivo, mas **uma sessão que já existe não aceita nova `run` com o mesmo nome** ("session already exists"), e um rascunho de spec não é retomável; para continuar, abra outra sessão com o contexto no prompt; `serve-remote` abre uma ponte TLS com token. Provavelmente melhor que o `exec` solto para tarefas longas; teste antes de depender.
 - `zero serve --mcp`: o zero como servidor MCP por stdio (`--allow-unsafe-tools` expõe escrita e shell).
 - `zero acp`: ACP por JSON-RPC em stdio, para editores; também dá eventos estruturados.
 - `zero cron add "<5 campos>" --prompt ...`, `zero worktrees prepare|release` e `zero eval`: agendamento, worktree isolado e suítes de avaliação offline.

@@ -86,6 +86,10 @@ type sandbox struct {
 	Cache   string
 	Work    string
 	AppData string
+	// Extra is appended to the child environment after the defaults; the last
+	// value of a duplicated key wins (os/exec), so a test can override TZ or add
+	// LC_ALL for one run. It is empty unless a test sets it.
+	Extra []string
 }
 
 func newSandbox(t *testing.T) *sandbox {
@@ -133,7 +137,7 @@ func (s *sandbox) env() []string {
 			env = append(env, k+"="+v)
 		}
 	}
-	return env
+	return append(env, s.Extra...)
 }
 
 // writeConfig writes the user config with one OpenAI-compatible profile that
