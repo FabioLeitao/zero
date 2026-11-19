@@ -35,10 +35,12 @@ internal/providers/openai/provider_test.go
 internal/providers/openai/codex_terminal_test.go
 internal/providers/openai/provider_resolved_model_test.go
 internal/providers/openai/resolved_model_nonstring_test.go
+internal/providers/openai/provider_late_model_test.go
 internal/usage/report_resolved_display_test.go
 internal/usage/report_resolved_review_test.go
 internal/zeroruntime/resolved_model.go
 internal/zeroruntime/resolved_model_test.go
+internal/zeroruntime/collect_cancel_test.go
 internal/cli/usage.go
 internal/cli/usage_test.go
 internal/acp/usage_test.go
