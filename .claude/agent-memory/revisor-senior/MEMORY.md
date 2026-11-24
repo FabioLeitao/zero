@@ -1,0 +1,1 @@
+- [Projeto zero (fork)](projeto_zero_fork.md) — convenções do fork Go, gate, erros vistos nos docs do PM

@@ -1,0 +1,28 @@
+
+### fetch upstream + origin
+
+### compute version
+version: 0.14.0+up.0.8d23195f.databoar.7f041a85.rmodel.sbxcompanion.acphard.ustats
+
+### worktree at candidate/2.10 (detached)
+building: 7f041a85 candidate 2.10 (local only): fork main with the held usage event and the collector drain cut, and plain test names
+toolchain: go1.27.4 (go1.27.4)
+
+### build
+Built /home/leitao/Projects/dev/zero-worktrees/databoar-build/zero (linux/amd64, version 0.14.0+up.0.8d23195f.databoar.7f041a85.rmodel.sbxcompanion.acphard.ustats)
+
+### smoke
+zero smoke check passed (0.14.0+up.0.8d23195f.databoar.7f041a85.rmodel.sbxcompanion.acphard.ustats)
+
+### check stamp
+ok: zero 0.14.0+up.0.8d23195f.databoar.7f041a85.rmodel.sbxcompanion.acphard.ustats
+
+### govulncheck (binary)
+
+### gosec (advisory, packages changed from the upstream base)
+
+### sandbox companion
+sandbox vcs.revision=7f041a85a7991807d8755bd6cdf9b8b9c4c0c77f
+built (not installed): /home/leitao/Projects/dev/zero-worktrees/databoar-build/zero
+sandbox built (not installed): /home/leitao/Projects/dev/zero-worktrees/databoar-build/zero-linux-sandbox
+BUILD_RC=0

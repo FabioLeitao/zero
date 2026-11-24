@@ -1,0 +1,16 @@
+zero-gate SHA=41b2120aff7d39f9eb458e1a62135da78054767d
+branch=usage/1148-resolved-model
+umask=0022 go=go version go1.27.2 linux/amd64
+env=runner-like HOME=$work/home TMPDIR=$work/tmp PATH=$work/bin:/usr/bin:/bin (no zero-linux-sandbox, no operator config)
+PASS  fmt-check (0s)
+PASS  vet (4s)
+PASS  test-race (148s)
+PASS  test (74s)
+PASS  build (6s)
+PASS  smoke (0s)
+KNOWN lint-static (37s): only the baseline findings of /home/leitao/.config/zero-gate/known-lint.txt
+PASS  vulncheck (5s)
+PASS  vulncheck-windows (2s)
+PASS  diff-check (0s)
+ZERO_GATE_EXIT=3 SHA=41b2120aff7d39f9eb458e1a62135da78054767d LOGS=/home/leitao/.cache/zero-gate/41b2120a-20261124T002538Z
+ZERO_GATE_DONE rc=3

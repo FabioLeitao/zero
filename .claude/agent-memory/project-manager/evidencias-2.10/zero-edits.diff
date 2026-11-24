@@ -1,0 +1,30 @@
+diff --git a/internal/providers/openai/codex_responses.go b/internal/providers/openai/codex_responses.go
+index 47248c6a..71aa14c2 100644
+--- a/internal/providers/openai/codex_responses.go
++++ b/internal/providers/openai/codex_responses.go
+@@ -903,9 +903,9 @@ func (p *CodexProvider) handleTerminalResponse(
+ 		if p.inner != nil {
+ 			requested = p.inner.model
+ 		}
+ 		usage.ResolvedModel = zeroruntime.ResolvedModelAttribution(requested, string(event.Response.Model))
+-		usage.ModelReported = zeroruntime.SanitizeResolvedModel(string(event.Response.Model)) != ""
++		usage.ModelReported = event.Response.Model != ""
+ 		providerio.SendEvent(ctx, events, zeroruntime.StreamEvent{
+ 			Type:  zeroruntime.StreamEventUsage,
+ 			Usage: usage,
+ 		})
+diff --git a/internal/providers/openai/provider.go b/internal/providers/openai/provider.go
+index db59e221..30bf59f3 100644
+--- a/internal/providers/openai/provider.go
++++ b/internal/providers/openai/provider.go
+@@ -373,9 +373,9 @@ func (provider *Provider) emitChunk(
+ 				CachedInputTokens: chunk.Usage.PromptTokensDetails.CachedTokens,
+ 				CacheWriteTokens:  chunk.Usage.PromptTokensDetails.CacheWriteTokens,
+ 				ReasoningTokens:   chunk.Usage.CompletionTokensDetails.ReasoningTokens,
+ 				ResolvedModel:     zeroruntime.ResolvedModelAttribution(provider.model, state.resolvedModel),
+-				ModelReported:     state.resolvedModel != "",
++				ModelReported:     chunk.Model != "",
+ 			},
+ 		})
+ 	}
+ }
