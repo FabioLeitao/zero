@@ -82,3 +82,59 @@ func TestRenderDiffCPUMeasuresCache(t *testing.T) {
 	t.Logf("Arquivo de teste: internal/tui/render_diff_cpu_test.go")
 	t.Logf("Commit: test(tui): add render diff CPU cache measures benchmark")
 }
+
+// buildLongDiffTranscriptModel cria um modelo com transcript de diffs longos
+// para benchmark de performance.
+func buildLongDiffTranscriptModel() model {
+	m := transcriptViewTestModel()
+	m.altScreen = true
+	m.pending = false // settled state
+	m.activeRunID = 0
+
+	const numRows = 50
+	const linesPerRow = 300
+
+	for i := 0; i < numRows; i++ {
+		var plusLines, minusLines []string
+		for j := 0; j < linesPerRow; j++ {
+			if j%2 == 0 {
+				plusLines = append(plusLines, "+ func handle"+string(rune('0'+i%10))+"(x int) int {")
+				minusLines = append(minusLines, "- func handle"+string(rune('0'+i%10))+"(x int) int {")
+			} else {
+				plusLines = append(plusLines, "// some comment line "+string(rune('a'+j%26)))
+				minusLines = append(minusLines, "// some comment line "+string(rune('a'+j%26)))
+			}
+		}
+		diffContent := "--- a/file.go\n+++ b/file.go\n" + strings.Join(plusLines, "\n") + "\n" + strings.Join(minusLines, "\n")
+		m.transcript = append(m.transcript, transcriptRow{
+			kind:  rowToolCall,
+			id:    "diff-" + string(rune('0'+i%10)),
+			text:  diffContent,
+			runID: 0,
+		})
+	}
+	m.flushed = len(m.transcript)
+	m.flushedAny = true
+	// Prime o settled cache
+	m, _ = m.settleTranscript()
+	return m
+}
+
+// BenchmarkViewLongDiffTranscript mede o custo de renderizar um transcript
+// com 50 diffs grandes (300 linhas cada) no estado settled.
+func BenchmarkViewLongDiffTranscript(b *testing.B) {
+	m := buildLongDiffTranscriptModel()
+	width := m.chatColumnWidth()
+
+	// Verifica que o settled cache está primado
+	if m.altScreenSettledFrontier != m.flushed || m.altScreenSettledWidth != width {
+		b.Fatalf("settled cache miss before benchmark: frontier=%d flushed=%d width=%d wantWidth=%d",
+			m.altScreenSettledFrontier, m.flushed, m.altScreenSettledWidth, width)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = m.transcriptBodyItems(width, "", false)
+	}
+}
