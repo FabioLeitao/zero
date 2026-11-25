@@ -1,5 +1,5 @@
 - [Estado do PM do zero](project_zero_pm_estado.md) — regras nº1/nº2, tarefas A e B, gate local e decisões pendentes do operador (15/nov/2026)
 - [Sem API Anthropic](feedback_sem_api_anthropic.md) — operador só tem subscription; nunca --mode/--allow-escalation no zero, usar ZERO_PROVIDER e -m
 - [Planos reduzidos](user_planos_reduzidos.md) — operador com assinaturas menores (ChatGPT Go, Claude, Cursor); cota é escassa, free-tier primeiro
-- [Rodada 2.10 (23/nov)](project_zero_rodada_2_10.md) — cortar held usage da #1234; issue #53; executor OpenCode; sem "vai" ao upstream ainda
+- [Rodada 2.10 (23-25/nov)](project_zero_rodada_2_10.md) — corte na #1234 (head 41b2120a), #54 mesclada, descrição com escopo; aguarda mantenedor
 - [Sem worktree nem cópia](feedback_sem_worktree_nem_copia.md) — ordem do operador 24/nov: nunca worktree/cópia de repo; tudo em branch do clone; build script conflita

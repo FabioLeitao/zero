@@ -1,9 +1,17 @@
 ---
 name: zero-rodada-2-10
-description: Rodada de 23/nov/2026: cortar held usage/drain da Twigpine/zero#1234 pedido pelo mantenedor; tarefa [2.10] = issue #53 do fork, executor OpenCode
+description: Rodada 23-25/nov/2026 (corte entregue, head 41b2120a, aguarda mantenedor): cortar held usage/drain da Twigpine/zero#1234 pedido pelo mantenedor; tarefa [2.10] = issue #53 do fork, executor OpenCode
 metadata:
   type: project
 ---
+
+**=== STATUS ATUAL (25/nov/2026) — vale sobre os blocos abaixo, que são histórico ===**
+- #54 MESCLADA pelo operador (24/nov 05:35Z). `usage/1148-resolved-model` = `41b2120a` no clone, no origin e como head da `Twigpine/zero#1234` (o operador empurrou; fast-forward, sem force).
+- Resposta ao mantenedor publicada na #1234 (24/nov 05:36Z). CodeRabbit (05:40Z) reclamou do check "Linked Issues": opção (b) feita em 25/nov — o operador rodou, do painel `author/zero` do herdr (colado por mim com `herdr-author zero`), um `gh pr edit` que acrescentou à descrição a seção "Scope of #1148 (maintainer decision)" com o link do review 5971358403. Conferido: está na descrição.
+- NÃO há push pendente na #1234: o reparo pedido já é o head testado (gate 3, build+dogfood da candidata 7f041a85).
+- Aguarda: novo review do mantenedor (Vasanthdev2004). #44 [2.5] só fecha com o aceite.
+- Plano atualizado com 2.7 a 2.14 (2.11 e 2.14 ainda sem issue). Pendências do operador: executor da 2.11; 2.12 #55 antes de qualquer build; 2.13 #56; 2.14 depois do aceite.
+- Teto de tentativas agora é 2 (revisado pelo operador em 24/nov; ver CLAUDE.md global). A limpeza `limpar_ambiente.py --aplicar` (só `docker network prune -f`) foi barrada pelo classificador em 25/nov: não repetir sem o operador liberar.
 
 **=== STATUS DE PARADA (24/nov ~02:20, operador mandou parar por hoje) ===**
 REGRAS DO OPERADOR QUE VALEM SEMPRE: teto = 1 tentativa (nada de loop/retry/polling); PM não decide configuração, usa a ferramenta como está; NUNCA worktree nem cópia de repo (branch no clone; `/tmp` é RAM); nada no upstream (Twigpine/zero) sem "vai" explícito e separado; só o operador mescla (`--merge`).
