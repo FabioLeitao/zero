@@ -1,0 +1,1 @@
+- [Acceptance conventions](project_acceptance_conventions.md) — internal/acceptance layout, the one-line pending switch, how tests are proven

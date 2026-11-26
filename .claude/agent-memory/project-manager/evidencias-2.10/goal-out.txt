@@ -1,0 +1,20 @@
+ 7f041a8  ~/Projects/dev/zero-worktrees/databoar-build                                                                                                                                 chatgpt/gpt-5.6-luna · 272K
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Collect with CollectStream.
+Assertion
+Assert that the merged usage retains the first model and report flag, while combining the token
+counts:
+if got := collected.Usage.ResolvedModel; got != "provider/actual-model" {
+    t.Fatalf("ResolvedModel = %q, want provider/actual-model", got)
+}
+if !collected.Usage.ModelReported {
+    t.Fatal("ModelReported = false, want true")
+}
+This fails if the second usage chunk recomputes ModelReported from its raw model—which is
+absent—and overwrites the prior state. mergeUsageSnapshot is specifically intended to prevent
+that at internal/zeroruntime/helpers.go:197-204.
+  ? shortcuts · Ctrl+X cmds · Ctrl+B details · Ctrl+O detail · Ctrl+E copy · Shift+Tab mode
+╭─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ❯  describe a task for zero…                                                                                                                                                                                    │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── gpt-5.6-luna ╯
+  ● ask · low │ ◎ goal complete                                                                                                                                                                    ◔ 36K/272K · 13%

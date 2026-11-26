@@ -1,0 +1,2 @@
+- [Escapes invisíveis](feedback_escapes_invisiveis.md) — Edit/heredoc viram \u200b/\u202e em caractere literal; re-grep e corrigir com chr()
+- [Pontos frágeis do fork zero](project_zero_fragile_points.md) — usage.go em 2 rótulos, TZ no Windows, pre-commit sem config
