@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -208,5 +209,70 @@ func TestStreamCompletionEchoOfRequestedModelClearsEarlierAttribution(t *testing
 	}
 	if last.EffectiveOutputTokens() != 4 {
 		t.Fatalf("output tokens = %d, want the later snapshot's 4", last.EffectiveOutputTokens())
+	}
+}
+
+// A control-only chunk carries a model id made up only of control characters
+// and no usage. Normalization reduces that id to empty, so the held usage must
+// not claim the provider reported a model. Regression for the dogfood mutation
+// that compared the raw model with "" instead of the sanitized one.
+func TestStreamCompletionControlOnlyModelIsNotReported(t *testing.T) {
+	t.Parallel()
+	controlOnlyChunk, err := json.Marshal(map[string]any{
+		"model":   string([]rune{0x1b, 0x00, 0x07}),
+		"choices": []any{},
+	})
+	if err != nil {
+		t.Fatalf("marshal control-only chunk: %v", err)
+	}
+	provider := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		writeSSE(w, string(controlOnlyChunk))
+		writeSSE(w, `{"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":1}}`)
+		writeSSE(w, `[DONE]`)
+	})
+	events := collectProviderEvents(t, provider)
+	var usageEvents []zeroruntime.StreamEvent
+	for _, event := range events {
+		if event.Type == zeroruntime.StreamEventUsage {
+			usageEvents = append(usageEvents, event)
+		}
+	}
+	if len(usageEvents) != 1 {
+		t.Fatalf("usage events = %d, want exactly 1; events: %#v", len(usageEvents), events)
+	}
+	if usageEvents[0].Usage.ModelReported {
+		t.Fatal("ModelReported = true, want false: a control-only model is not a reported model")
+	}
+	if usageEvents[0].Usage.ResolvedModel != "" {
+		t.Fatalf("ResolvedModel = %q, want empty", usageEvents[0].Usage.ResolvedModel)
+	}
+}
+
+// A model chunk followed by a usage chunk without a model must still report the
+// last model seen: ModelReported comes from the accumulated resolvedModel, not
+// from the chunk that happens to carry the usage. Regression for the dogfood
+// mutation that replaced state.resolvedModel != "" with chunk.Model != "".
+func TestStreamCompletionUsageWithoutModelRetainsLastSeenModelReported(t *testing.T) {
+	t.Parallel()
+	provider := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		writeSSE(w, `{"model":"deepseek/x","choices":[]}`)
+		writeSSE(w, `{"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":1}}`)
+		writeSSE(w, `[DONE]`)
+	})
+	events := collectProviderEvents(t, provider)
+	var usageEvents []zeroruntime.StreamEvent
+	for _, event := range events {
+		if event.Type == zeroruntime.StreamEventUsage {
+			usageEvents = append(usageEvents, event)
+		}
+	}
+	if len(usageEvents) != 1 {
+		t.Fatalf("usage events = %d, want exactly 1; events: %#v", len(usageEvents), events)
+	}
+	if !usageEvents[0].Usage.ModelReported {
+		t.Fatal("ModelReported = false, want true: the last seen model must be retained")
+	}
+	if usageEvents[0].Usage.ResolvedModel != "deepseek/x" {
+		t.Fatalf("ResolvedModel = %q, want deepseek/x", usageEvents[0].Usage.ResolvedModel)
 	}
 }
